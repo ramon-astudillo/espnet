@@ -95,30 +95,30 @@ if [ -z $VIRTUAL_ENV ];then
 fi
 set -o nounset
 
-## Preliminaries
-## Upgrade to latest pip 
-## TODO: Safer to freeze to the last working version
-#pip install pip --upgrade
-#pip install setuptools>=38.5.1
-#pip install -r requirements.txt
-#pip install matplotlib
-#pip install cffi
-#
-## Pytorch 0.3.1
-#pip install torch==0.3.1
-#pip install torchvision
-#
-## Chainer CTC
-#if [ ! -d "chainer_ctc" ];then
-#    git clone https://github.com/jheymann85/chainer_ctc.git
-#else
-#    printf "\033[92mFound\033[0m downloaded chainer_ctc\n"
-#fi
-##pip install cython
-#cd chainer_ctc 
-#chmod +x install_warp-ctc.sh 
-#./install_warp-ctc.sh 
-#pip install .
+# Preliminaries
+# Upgrade to latest pip 
+# TODO: Safer to freeze to the last working version
+pip install pip --upgrade
+pip install setuptools>=38.5.1
+pip install -r requirements.txt
+pip install matplotlib
+pip install cffi
+
+# Pytorch 0.3.1
+pip install torch==0.3.1
+pip install torchvision
+
+# Chainer CTC
+if [ ! -d "chainer_ctc" ];then
+    git clone https://github.com/jheymann85/chainer_ctc.git
+else
+    printf "\033[92mFound\033[0m downloaded chainer_ctc\n"
+fi
+#pip install cython
+cd chainer_ctc 
+chmod +x install_warp-ctc.sh 
+./install_warp-ctc.sh 
+pip install .
 
 # Warp-CTC
 # Download warp-ctc 
