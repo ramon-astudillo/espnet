@@ -3,6 +3,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+if [ -z $CUDA_HOME ];then
+    printf "You need to define CUDA variables in ~/.bash_profile, see README"
+    exit
+fi
+
 # TODO: Install logs should be stored somewhere and not sent to stdout/err
 echo ""
 
@@ -30,7 +35,8 @@ if [ ! -f "kaldi/src/featbin/copy-feats" ];then
     # Try installation
 	cd kaldi_github/tools
     make all
-	cd ../src; ./configure --shared --use-cuda=no
+	cd ../src
+    ./configure --shared --use-cuda=no
     make depend
     make all
     if [ ! -f "kaldi/src/featbin/copy-feats" ];then
@@ -74,30 +80,35 @@ else
 fi
 cd $cwd
 
-# Python territory check for virtualenv
+# Python territory check for condaenv 
 set +o nounset
-if [ -z $VIRTUAL_ENV ];then
-    printf "\nFor the Python modules, it is reccomended to launch the install script inside a virtual environment (remember to use py2!), for example\n\n"
-    printf "virtualenv venv -p /usr/bin/python2.7\n"
-    printf "source venv/bin/activate\n"
-    printf "bash install\n"
+# Sanity Check: novirtualenv 
+if [ ! -z $VIRTUAL_ENV ];then
+    printf "\nThis is for a conda environment not a virtualenv!\n"
+    exit
+fi
+if [ "$CONDA_DEFAULT_ENV" == "" ];then
+    printf "\nFor the Python modules, use a conda environment, for example\n\n"
+    printf "conda create -n py27_test python=2.7 --yes\n"
+    printf "conda activate py27_test\n"
+    printf "bash install_with_conda\n\n"
     exit        
 fi
 set -o nounset
 
-# Preliminaries
-# Upgrade to latest pip 
-# TODO: Safer to freeze to the last working version
-#pip install pip --upgrade
-#pip install setuptools>=38.5.1
-#pip install -r requirements.txt
-#pip install matplotlib
-## Fix from Karthick
-#pip install cupy-cuda90 --pre
+## Install Python modules
+conda install chainer>=3.0.0 --yes
+conda install -c contango python_speech_features --yes
+conda install numpy pyyaml mkl mkl-include setuptools cmake cffi typing cython --yes
 
-## Pytorch 0.3.1
-#pip install torch==0.3.1
-#pip install torchvision
+# KARTHICKS TRICK
+pip install cupy-cuda90 --pre
+
+# Pytorch
+conda install pytorch==0.3.1 --yes
+
+# KARTHICKS TRICK
+pip install torch==0.3.1
 
 # Warp-CTC
 # Download warp-ctc 
@@ -108,7 +119,27 @@ else
 fi
 cd warp-ctc
 git checkout 9e5b238f8d9337b0c39b3fd01bbaff98ba523aa5
+rm -rf build
 mkdir build
 cd build 
 cmake .. 
 make -j4
+cd ../pytorch_binding
+python setup.py install
+cd $cwd
+
+# Chainer CTC
+if [ ! -d "chainer_ctc" ];then
+    git clone https://github.com/jheymann85/chainer_ctc.git
+else
+    printf "\033[92mFound\033[0m downloaded chainer_ctc\n"
+    rm -rf chainer_ctc/ext/warp-ctc 
+fi
+cd chainer_ctc 
+chmod +x install_warp-ctc.sh 
+./install_warp-ctc.sh 
+pip install .
+cd $cwd
+
+# Sanity check
+python -c "from chainer_ctc.warpctc import ctc as warp_ctc"
