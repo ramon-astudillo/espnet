@@ -136,3 +136,6 @@ cmake ..
 make -j4
 cd ../pytorch_binding
 python setup.py install
+
+# Sanity check
+python -c "from chainer_ctc.warpctc import ctc as warp_ctc"
