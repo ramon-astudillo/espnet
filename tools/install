@@ -1,0 +1,114 @@
+#!/bin/bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+# TODO: Install logs should be stored somewhere and not sent to stdout/err
+echo ""
+
+# Current path
+cwd=$(pwd) 
+
+# Sanity check: This is launched from the correct folder
+if [ "$(basename $cwd)" != "tools" ];then
+    printf "\n$0 should be called from inside the espnet/tools folder\n\n"    
+    exit
+fi
+
+# KALDI
+# Note that you can link your kaldi installation int the folder to skip this
+# step ln -s /my/kaldi/ kaldi
+if [ ! -f "kaldi/src/featbin/copy-feats" ];then
+    
+    # Download kaldi        
+    if [ ! -f "kaldi_github" ];then
+        git clone https://github.com/kaldi-asr/kaldi.git kaldi_github    
+    else:
+        printf "\033[92mFound\033[0m downloaded kaldi_github\n"
+    fi
+
+    # Try installation
+	cd kaldi_github/tools
+    make all
+	cd ../src; ./configure --shared --use-cuda=no
+    make depend
+    make all
+    if [ ! -f "kaldi/src/featbin/copy-feats" ];then
+	    ln -s kaldi_github kaldi
+    else    
+        printf "Automatic Kaldi installation \033[31mFailed\033[0m\n"            
+        printf "See kaldi_github/INSTALL for manual instructions\n"            
+    fi
+
+else
+    printf "\033[92mFound\033[0m installed kaldi\n"
+fi
+cd $cwd
+# Get extra io tools for Kaldi
+if [ ! -f "../src/utils/kaldi_io_py.py" ];then
+    git clone https://github.com/vesis84/kaldi-io-for-python.git
+    cd ../src/utils
+    ln -s ../../tools/kaldi-io-for-python/kaldi_io.py kaldi_io_py.py
+    if [ ! -f "kaldi_io_py.py" ];then
+        printf "Installing kaldi io \033[31mFailed\033[0m (Internet?)\n"            
+        exit            
+    fi
+else
+    printf "\033[92mFound\033[0m installed kaldi_io_py.py\n"
+fi
+cd $cwd
+
+# NKF
+if [ ! -f "nkf/nkf-2.1.4/nkf" ] ;then
+    mkdir -p nkf
+    cd nkf
+    wget http://gigenet.dl.osdn.jp/nkf/64158/nkf-2.1.4.tar.gz
+    tar zxvf nkf-2.1.4.tar.gz
+    cd nkf-2.1.4
+    make prefix=.
+    if [ ! -f "nkf" ] ;then
+        printf "Installing nkf \033[31mFailed\033[0m\n"
+    fi
+else
+    printf "\033[92mFound\033[0m installed nkf\n"
+fi
+cd $cwd
+
+# Python territory check for virtualenv
+set +o nounset
+if [ -z $VIRTUAL_ENV ];then
+    printf "\nFor the Python modules, it is reccomended to launch the install script inside a virtual environment (remember to use py2!), for example\n\n"
+    printf "virtualenv venv -p /usr/bin/python2.7\n"
+    printf "source venv/bin/activate\n"
+    printf "bash install\n"
+    exit        
+fi
+set -o nounset
+
+# Preliminaries
+# Upgrade to latest pip 
+# TODO: Safer to freeze to the last working version
+#pip install pip --upgrade
+#pip install setuptools>=38.5.1
+#pip install -r requirements.txt
+#pip install matplotlib
+## Fix from Karthick
+#pip install cupy-cuda90 --pre
+
+## Pytorch 0.3.1
+#pip install torch==0.3.1
+#pip install torchvision
+
+# Warp-CTC
+# Download warp-ctc 
+if [ ! -d "warp-ctc" ];then
+    git clone https://github.com/SeanNaren/warp-ctc.git
+else
+    printf "\033[92mFound\033[0m downloaded warp-ctc\n"
+fi
+cd warp-ctc
+git checkout 9e5b238f8d9337b0c39b3fd01bbaff98ba523aa5
+mkdir build
+cd build 
+cmake .. 
+make -j4
