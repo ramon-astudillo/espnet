@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ from https://github.com/keithito/tacotron """
 
 '''
@@ -67,7 +68,7 @@ def collapse_whitespace(text):
 
 
 def convert_to_ascii(text):
-    return unidecode(text)
+    return unidecode(unicode(text))
 
 
 def remove_unnecessary_symbols(text):

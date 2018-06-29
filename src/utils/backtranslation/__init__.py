@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 """ from https://github.com/keithito/tacotron """
 import re
-from text import cleaners
-from text.symbols import symbols
+from backtranslation import cleaners
+from backtranslation.symbols import symbols
 
 
 # Mappings from symbol to numeric ID and vice versa:
