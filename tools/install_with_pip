@@ -3,24 +3,27 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-if [ -z $CUDA_HOME ];then
-    printf "You need to define CUDA variables in ~/.bash_profile, see README"
-    exit
-fi
-
 # TODO: Install logs should be stored somewhere and not sent to stdout/err
 echo ""
 
 # Current path
 cwd=$(pwd) 
 
-# Sanity check: This is launched from the correct folder
+# SANITY CHECKS:
+# Cuda variables set
+if [ -z $CUDA_HOME ];then
+    printf "You need to define CUDA variables in ~/.bash_profile, see README"
+    exit
+fi
+# This is launched from the correct folder
 if [ "$(basename $cwd)" != "tools" ];then
     printf "\n$0 should be called from inside the espnet/tools folder\n\n"    
     exit
 fi
 
-# KALDI
+##############################################################################
+#                                KALDI
+##############################################################################
 # Note that you can link your kaldi installation int the folder to skip this
 # step ln -s /my/kaldi/ kaldi
 if [ ! -f "kaldi/src/featbin/copy-feats" ];then
@@ -35,7 +38,8 @@ if [ ! -f "kaldi/src/featbin/copy-feats" ];then
     # Try installation
 	cd kaldi_github/tools
     make all
-	cd ../src; ./configure --shared --use-cuda=no
+	cd ../src
+    ./configure --shared --use-cuda=no
     make depend
     make all
     if [ ! -f "kaldi/src/featbin/copy-feats" ];then
@@ -63,7 +67,9 @@ else
 fi
 cd $cwd
 
-# NKF
+##############################################################################
+#                               NKF 
+##############################################################################
 if [ ! -f "nkf/nkf-2.1.4/nkf" ] ;then
     mkdir -p nkf
     cd nkf
@@ -81,11 +87,13 @@ cd $cwd
 
 # Python territory check for virtualenv
 set +o nounset
-# Sanity Check: no conda environment
+# SANITY CHECKs: 
+# No conda environment
 if [ "$CONDA_DEFAULT_ENV" != "" ];then
     printf "\nThis is for a virtualenv not a conda environment!\n"
     exit
 fi
+# In virtualenv 
 if [ -z $VIRTUAL_ENV ];then
     printf "\nFor the Python modules, it is reccomended to launch the install script inside a virtual environment (remember to use py2!), for example\n\n"
     printf "virtualenv venv -p /usr/bin/python2.7\n"
@@ -94,6 +102,16 @@ if [ -z $VIRTUAL_ENV ];then
     exit        
 fi
 set -o nounset
+# virtualenv exists
+if [ ! -d "$VIRTUAL_ENV" ];then
+    printf "\nHave you deleted $VIRTUAL_ENV ?\n\n"
+    exit
+fi
+# Python2 
+if [  "$(python -c 'import sys; print(sys.version_info[0:2])')" != "(2, 7)" ];then
+    printf "\nExpected virtualenv with Python 2.7 (virtualenv venv -p /usr/bin/python2.7)\n\n"
+    exit
+fi
 
 # Preliminaries
 # Upgrade to latest pip 
@@ -108,28 +126,32 @@ pip install cffi
 pip install torch==0.3.1
 pip install torchvision
 
-# Chainer CTC
-if [ ! -d "chainer_ctc" ];then
-    git clone https://github.com/jheymann85/chainer_ctc.git
-else
-    printf "\033[92mFound\033[0m downloaded chainer_ctc\n"
+##############################################################################
+#                              CTC 
+##############################################################################
+
+# gcc version seems to have an effect
+#export CC=/usr/bin/gcc-6
+#export CXX=/usr/bin/gcc-6
+
+if [ -d "chainer_ctc" ];then
+    rm -rf chainer_ctc    
 fi
-#pip install cython
+git clone https://github.com/jheymann85/chainer_ctc.git
 cd chainer_ctc 
 chmod +x install_warp-ctc.sh 
 ./install_warp-ctc.sh 
 pip install .
+cd $cwd
 
 # Warp-CTC
 # Download warp-ctc 
-if [ ! -d "warp-ctc" ];then
-    git clone https://github.com/SeanNaren/warp-ctc.git
-else
-    printf "\033[92mFound\033[0m downloaded warp-ctc\n"
+if [ -d "warp-ctc" ];then
+    rm -rf warp-ctc        
 fi
+git clone https://github.com/SeanNaren/warp-ctc.git
 cd warp-ctc
 git checkout 9e5b238f8d9337b0c39b3fd01bbaff98ba523aa5
-rm -rf build
 mkdir build
 cd build 
 cmake .. 
@@ -138,4 +160,5 @@ cd ../pytorch_binding
 python setup.py install
 
 # Sanity check
-python -c "from chainer_ctc.warpctc import ctc as warp_ctc"
+python -c "import torch;torch.cuda.is_available()"
+python -c "import warpctc_pytorch"
