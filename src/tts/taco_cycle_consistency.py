@@ -54,8 +54,11 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
         zoneout=train_args.zoneout_rate,
     )
 
+    # Set to eval mode
+    tacotron2.eval()
+
     # Define loss
-    return Tacotron2Loss(
+    loss = Tacotron2Loss(
         model=tacotron2,
         use_masking=use_masking,
         bce_pos_weight=bce_pos_weight,
@@ -64,6 +67,10 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
         reduce_loss=False,
         use_bce_loss=False
     )
+
+    loss.eval()
+
+    return loss
 
 
 def load_tacotron_loss(tts_model_file):
