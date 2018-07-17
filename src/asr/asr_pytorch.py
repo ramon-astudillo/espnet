@@ -142,6 +142,119 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
         delete_feat(x)
 
 
+class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
+    '''Custom updater for pytorch using samples as additional input and summing over them to get total graident update'''
+
+    def __init__(self, model, grad_clip_threshold, train_iter,
+                 optimizer, converter, device, predictor, n_samples_per_input, 
+                 maxlenratio, minlenratio):
+        super(PytorchSeqUpdaterKaldiSamples, self).__init__(
+            train_iter, optimizer, converter=converter, device=None)
+        self.model = model
+        self.grad_clip_threshold = grad_clip_threshold
+        self.num_gpu = len(device)
+        self.predictor = predictor
+        self.n_samples_per_input = n_samples_per_input
+        self.maxlenratio = maxlenratio
+        self.minlenratio = minlenratio
+
+    # The core part of the update routine can be customized by overriding.
+    def update_core(self):
+        # When we pass one iterator and optimizer to StandardUpdater.__init__,
+        # they are automatically named 'main'.
+        train_iter = self.get_iterator('main')
+        optimizer = self.get_optimizer('main')
+
+        # Get the next batch ( a list of json files)
+        batch = train_iter.__next__()
+
+        # read scp files
+        # x: original json with loaded features
+        #    will be converted to chainer variable later
+        # batch only has one minibatch utterance, which is specified by batch[0]
+        if len(batch[0]) < self.num_gpu:
+            logging.warning('batch size is less than number of gpus. Ignored')
+            return
+        x = self.converter(batch)
+
+        # Get samples from the model
+        # sample output sequence with the current model
+        import ipdb;ipdb.set_trace(context=50)
+        loss_ctc, loss_att, ys = self.predictor.generate(
+            x,
+            n_samples_per_input=self.n_samples_per_input,
+            maxlenratio=self.maxlenratio,
+            minlenratio=self.minlenratio
+        )
+        # Merge losses and get the data fro logging
+        acc = 0.
+        loss = None
+        alpha = self.mtlalpha
+        if alpha == 0:
+            loss = loss_att
+            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
+            loss_ctc_data = None
+        elif alpha == 1:
+            loss = loss_ctc
+            loss_att_data = None
+            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+        else:
+            loss = alpha * loss_ctc + (1 - alpha) * loss_att
+            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
+            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+
+        batch_size = int(len(loss.data) / self.n_samples_per_input)
+        # loss -> posterior probs
+
+        # To prevent zeros
+        prob = torch.nn.Softmax(dim=1)(
+            -loss.view(
+                batch_size,
+                self.n_samples_per_input
+            ) * self.sample_scaling
+        )
+
+#        # Print samples:
+#        if self.verbose > 0 and self.char_list is not None:
+#            for i in six.moves.range(batch_size):
+#                for j in six.moves.range(self.n_samples_per_input):
+#                    y_str = "".join([self.char_list[int(idx)] for idx in ys[i * self.n_samples_per_input + j]])
+#                    #print("generate[%d,%d]: %.4f %.4f " % (i, j, logprob[i, j], prob[i,j]) + y_str)
+
+        optimizer.zero_grad()  
+        for sample_index in range(self.n_samples_per_input):
+
+            # Compute loss for this sample
+            import ipdb;ipdb.set_trace(context=50)
+            loss = 1. / self.num_gpu * self.model(x)
+
+            # Backprop and accumulate the gradients
+            if self.num_gpu > 1:
+                loss.backward(
+                    torch.ones(self.num_gpu),
+                    retain_graph=True
+                )  
+            else:
+                loss.backward(retain_graph=True)  # Backprop
+        # update the network parameters
+        optimizer.step() 
+
+        loss.detach()  # Truncate the graph
+        # compute the gradient norm to check if it is normal or not
+        if torch_is_old:
+            clip = torch.nn.utils.clip_grad_norm
+        else:
+            clip = torch.nn.utils.clip_grad_norm_
+        grad_norm = clip(
+            self.model.parameters(), self.grad_clip_threshold)
+        logging.info('grad norm={}'.format(grad_norm))
+        if math.isnan(grad_norm):
+            logging.warning('grad norm is nan. Do not update model.')
+        else:
+            optimizer.step()
+        delete_feat(x)
+
+
 class DataParallel(torch.nn.DataParallel):
     def scatter(self, inputs, kwargs, device_ids, dim):
         r"""Scatter with support for kwargs dictionary"""
@@ -222,6 +335,8 @@ def train(args):
     # specify model architecture
     e2e = E2E(idim, odim, args)
     model = Loss(e2e, args.mtlalpha)
+    # Keep original loss predictor
+    predictor = model.predictor
     if args.prior_model:
         model.load_state_dict(torch.load(args.prior_model))
     if args.expected_loss:
@@ -241,7 +356,7 @@ def train(args):
             raise NotImplemented(
                 'Unknown expected loss: %s' % args.expected_loss
             )
-        model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
+        model = ExpectedLoss(args, loss_fn=loss_fn)
 
     # write model config
     if not os.path.exists(args.outdir):
@@ -301,8 +416,31 @@ def train(args):
         valid, 1, repeat=False, shuffle=False)
 
     # Set up a trainer
-    updater = PytorchSeqUpdaterKaldi(
-        model, args.grad_clip, train_iter, optimizer, converter=converter_kaldi, device=gpu_id)
+    if args.expected_loss:
+        # Update for samples. Only updates after all samples have been
+        # processed
+        updater = PytorchSeqUpdaterKaldiSamples(
+            model,  # This contains to the predictor
+            args.grad_clip,
+            train_iter,
+            optimizer,
+            converter=converter_kaldi,
+            device=gpu_id,
+            # Sampling parameters
+            predictor=predictor,
+            n_samples_per_input=args.n_samples_per_input,
+            maxlenratio=args.sample_maxlenratio,
+            minlenratio=args.sample_minlenratio
+        )
+    else:
+        updater = PytorchSeqUpdaterKaldi(
+            model,
+            args.grad_clip,
+            train_iter,
+            optimizer,
+            converter=converter_kaldi,
+            device=gpu_id
+    )
     trainer = training.Trainer(
         updater, (args.epochs, 'epoch'), out=args.outdir)
 
