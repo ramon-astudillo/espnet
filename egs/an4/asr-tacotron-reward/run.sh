@@ -360,7 +360,7 @@ mkdir -p ${expdir}
 
 if [ ${stage} -le 5 ]; then
     echo "stage 5: Network Training"
-    ${cuda_cmd} --gpu ${ngpu} ${expdir}/train.log \
+    #${cuda_cmd} --gpu ${ngpu} ${expdir}/train.log \
         asr_train.py \
         --ngpu ${ngpu} \
         --backend ${backend} \
@@ -390,7 +390,8 @@ if [ ${stage} -le 5 ]; then
         --opt ${opt} \
         --epochs ${epochs} \
         --tts-model ${tacotron_model} \
-        --expected-loss tts
+        --expected-loss tts \
+        --n-samples-per-input 1
 fi
 
 if [ ${stage} -le 6 ]; then
