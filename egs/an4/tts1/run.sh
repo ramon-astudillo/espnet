@@ -338,10 +338,10 @@ fi
 
 outdir=${expdir}/outputs_${model}_th${threshold}_mlr${minlenratio}-${maxlenratio}
 if [ ${stage} -le 5 ];then
-    echo "stage 4: Decoding"
+    echo "stage 5: Decoding"
     for sets in ${recog_set};do
         [ ! -e  ${outdir}/${sets} ] && mkdir -p ${outdir}/${sets}
-        cp ${dumpdir}/${sets}/data.json ${outdir}/${sets}
+        cp ${dumpdir}/${sets}/delta${do_delta}/data.json ${outdir}/${sets}
         splitjson.py --parts ${nj} ${outdir}/${sets}/data.json
         # decode in parallel
         ${train_cmd} JOB=1:$nj ${outdir}/${sets}/log/decode.JOB.log \
@@ -364,7 +364,7 @@ if [ ${stage} -le 5 ];then
 fi
 
 if [ ${stage} -le 6 ];then
-    echo "stage 5: Synthesis"
+    echo "stage 6: Synthesis"
     for sets in ${recog_set};do
         [ ! -e ${outdir}_denorm/${sets} ] && mkdir -p ${outdir}_denorm/${sets}
         apply-cmvn --norm-vars=true --reverse=true data/${train_set}/cmvn.ark \
