@@ -147,7 +147,7 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
 
     def __init__(self, model, grad_clip_threshold, train_iter,
                  optimizer, converter, device, predictor, n_samples_per_input, 
-                 maxlenratio, minlenratio):
+                 maxlenratio, minlenratio, mtlalpha, sample_scaling):
         super(PytorchSeqUpdaterKaldiSamples, self).__init__(
             train_iter, optimizer, converter=converter, device=None)
         self.model = model
@@ -157,6 +157,8 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
         self.n_samples_per_input = n_samples_per_input
         self.maxlenratio = maxlenratio
         self.minlenratio = minlenratio
+        self.mtlalpha = mtlalpha
+        self.sample_scaling = sample_scaling
 
     # The core part of the update routine can be customized by overriding.
     def update_core(self):
@@ -177,43 +179,6 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
             return
         x = self.converter(batch)
 
-        # Get samples from the model
-        # sample output sequence with the current model
-        import ipdb;ipdb.set_trace(context=50)
-        loss_ctc, loss_att, ys = self.predictor.generate(
-            x,
-            n_samples_per_input=self.n_samples_per_input,
-            maxlenratio=self.maxlenratio,
-            minlenratio=self.minlenratio
-        )
-        # Merge losses and get the data fro logging
-        acc = 0.
-        loss = None
-        alpha = self.mtlalpha
-        if alpha == 0:
-            loss = loss_att
-            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
-            loss_ctc_data = None
-        elif alpha == 1:
-            loss = loss_ctc
-            loss_att_data = None
-            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
-        else:
-            loss = alpha * loss_ctc + (1 - alpha) * loss_att
-            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
-            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
-
-        batch_size = int(len(loss.data) / self.n_samples_per_input)
-        # loss -> posterior probs
-
-        # To prevent zeros
-        prob = torch.nn.Softmax(dim=1)(
-            -loss.view(
-                batch_size,
-                self.n_samples_per_input
-            ) * self.sample_scaling
-        )
-
 #        # Print samples:
 #        if self.verbose > 0 and self.char_list is not None:
 #            for i in six.moves.range(batch_size):
@@ -224,18 +189,68 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
         optimizer.zero_grad()  
         for sample_index in range(self.n_samples_per_input):
 
+            # Get samples from the model
+            # sample output sequence with the current model
+            # TODO: The creatio of the samples could be moved out. Cost could
+            # be decoupled from that.
+            loss_ctc, loss_att, y = self.predictor.generate(
+                x,
+                n_samples_per_input=1,
+                maxlenratio=self.maxlenratio,
+                minlenratio=self.minlenratio
+            )
+
+            # Merge losses and get the data fro logging
+            acc = 0.
+            loss = None
+            alpha = self.mtlalpha
+            total_probs = []
+            if alpha == 0:
+                loss = loss_att
+                loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
+                loss_ctc_data = None
+            elif alpha == 1:
+                loss = loss_ctc
+                loss_att_data = None
+                loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+            else:
+                loss = alpha * loss_ctc + (1 - alpha) * loss_att
+                loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
+                loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+    
+            batch_size = int(len(loss.data) / self.n_samples_per_input)
+            # loss -> posterior probs
+    
+            prob = self.sample_scaling * -loss
+            
             # Compute loss for this sample
-            import ipdb;ipdb.set_trace(context=50)
-            loss = 1. / self.num_gpu * self.model(x)
+            sample_loss = (1. / self.num_gpu * self.model(x, y) * prob).sum()
+
+            if math.isnan(sample_loss.data):
+                import ipdb;ipdb.set_trace(context=50)
+                print("")
+
+#            loss_data = self.loss.data[0] if torch_is_old else float(self.loss)
+#            if loss_data < CTC_LOSS_THRESHOLD and not math.isnan(loss_data):
+#                self.reporter.report(loss_ctc_data, loss_att_data, acc, loss_data)
+#            else:
+#                logging.warning('loss (=%f) is not correct', self.loss.data)
 
             # Backprop and accumulate the gradients
             if self.num_gpu > 1:
-                loss.backward(
+                sample_loss.backward(
                     torch.ones(self.num_gpu),
                     retain_graph=True
                 )  
             else:
-                loss.backward(retain_graph=True)  # Backprop
+                sample_loss.backward(retain_graph=True)  # Backprop
+
+            total_probs.append(prob.data)
+
+        # TODO: Here need to scale gradient by sum of sample probability
+        # total_probs
+        import ipdb;ipdb.set_trace(context=50)
+
         # update the network parameters
         optimizer.step() 
 
@@ -356,7 +371,7 @@ def train(args):
             raise NotImplemented(
                 'Unknown expected loss: %s' % args.expected_loss
             )
-        model = ExpectedLoss(args, loss_fn=loss_fn)
+        model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
 
     # write model config
     if not os.path.exists(args.outdir):
@@ -430,7 +445,9 @@ def train(args):
             predictor=predictor,
             n_samples_per_input=args.n_samples_per_input,
             maxlenratio=args.sample_maxlenratio,
-            minlenratio=args.sample_minlenratio
+            minlenratio=args.sample_minlenratio,
+            mtlalpha=args.mtlalpha,
+            sample_scaling=args.sample_scaling
         )
     else:
         updater = PytorchSeqUpdaterKaldi(
