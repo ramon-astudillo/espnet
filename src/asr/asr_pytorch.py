@@ -186,17 +186,17 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
         batch_size = len(x)
         # Other values are possible as long as it is a divisor of batch x
         # samples
-        cluster_size = self.n_samples_per_input
-        num_clusters = batch_size / cluster_size
+        subbatch_size = 5 
+        num_clusters = int(math.ceil(batch_size * 1. / subbatch_size))
 
         optimizer.zero_grad()
         from debug import get_chunk_loss
-        for cluster_index in range(num_clusters):
+        for subbatch_index in range(num_clusters):
 
             # Select subset of batch elements
-            cluster_start = cluster_index*cluster_size
-            cluster_end = (cluster_size+1)*cluster_size
-            subset_x = x[cluster_start:cluster_end]
+            subbatch_start = subbatch_index * subbatch_size
+            subbatch_end = (subbatch_index + 1) * subbatch_size
+            subset_x = x[subbatch_start:subbatch_end]
 
             # chunk: batch slice times samples for each batch element
             chunk_loss = get_chunk_loss(
@@ -211,7 +211,6 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
                 self.model,
                 self
             )
-
             # Backprop and add this chunk gradients to the total
             if self.num_gpu > 1:
                 chunk_loss.backward(
@@ -221,11 +220,7 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
             else:
                 chunk_loss.backward(retain_graph=True)  # Backprop
 
-        # Update the network parameters
-        import ipdb;ipdb.set_trace(context=50)
-        optimizer.step()
-
-        loss.detach()  # Truncate the graph
+        chunk_loss.detach()  # Truncate the graph
         # compute the gradient norm to check if it is normal or not
         if torch_is_old:
             clip = torch.nn.utils.clip_grad_norm
@@ -239,6 +234,9 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
         else:
             optimizer.step()
         delete_feat(x)
+
+        import ipdb;ipdb.set_trace(context=50)
+        print("")
 
 
 class DataParallel(torch.nn.DataParallel):

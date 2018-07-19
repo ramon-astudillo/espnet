@@ -391,7 +391,7 @@ if [ ${stage} -le 5 ]; then
         --epochs ${epochs} \
         --tts-model ${tacotron_model} \
         --expected-loss tts \
-        --n-samples-per-input 2
+        --n-samples-per-input 5
 fi
 
 if [ ${stage} -le 6 ]; then

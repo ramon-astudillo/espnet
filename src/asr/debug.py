@@ -112,7 +112,7 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio, s
             del new_example_x[1]['input'][0]
 
             # Replace output sequence
-            new_example_x[1]['output'][0]['shape'][1] = len(text_sample)
+            new_example_x[1]['output'][0]['shape'][0] = len(text_sample)
             new_example_x[1]['output'][0]['text'] = None
             new_example_x[1]['output'][0]['token'] = None
             new_example_x[1]['output'][0]['tokenid'] = " ".join(
@@ -138,7 +138,6 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio, s
         use_speaker_embedding=True
     )
     samples = taco_converter([expanded_x])
-    print("")
 
     # Merge losses and get the data for logging
     acc = 0.
@@ -170,13 +169,8 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio, s
     prob = prob.view(-1)
 
     #
-    try:
-        sample_loss = (model.loss_fn(*samples).mean(2).mean(1) * prob).mean()
-        sample_loss = sample_loss * 1. / num_gpu
-    except:
-        import ipdb;ipdb.set_trace(context=30)
-        sample_loss = (model.loss_fn(*samples).mean(2).mean(1) * prob).mean()
-        sample_loss = sample_loss * 1. / num_gpu
+    sample_loss = (model.loss_fn(*samples).mean(2).mean(1) * prob).mean()
+    sample_loss = sample_loss * 1. / num_gpu
 
     if math.isnan(sample_loss.data):
         import ipdb;ipdb.set_trace(context=50)
