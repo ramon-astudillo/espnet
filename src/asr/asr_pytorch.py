@@ -189,19 +189,6 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
         cluster_size = batch_size
         num_clusters = (batch_size * self.n_samples_per_input) / cluster_size
 
-        # Get samples for this batch subset 
-        loss_ctc, loss_att, ys = self.predictor.generate(
-            x,
-            n_samples_per_input=self.n_samples_per_input,
-            maxlenratio=self.maxlenratio,
-            minlenratio=self.minlenratio
-        )
-        from taco_cycle_consistency import convert_espnet_to_taco_batch
-        taco_sample = convert_espnet_to_taco_batch(x, ys, len(x), self.n_samples_per_input, self.num_gpu, use_speaker_embedding=True)
-        self.model.loss_fn(*taco_sample[0])
-        import ipdb;ipdb.set_trace(context=50)
-        print("")
-
         optimizer.zero_grad()  
         from debug import get_chunk_loss
         for cluster_index in range(num_clusters):
@@ -210,6 +197,19 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
             cluster_start = cluster_index*cluster_size
             cluster_end = (cluster_size+1)*cluster_size
             subset_x = x[cluster_start:cluster_end]
+
+#            # Get samples for this batch subset 
+#            loss_ctc, loss_att, ys = self.predictor.generate(
+#                subset_x,
+#                n_samples_per_input=self.n_samples_per_input,
+#                maxlenratio=self.maxlenratio,
+#                minlenratio=self.minlenratio
+#            )
+#            from taco_cycle_consistency import convert_espnet_to_taco_batch
+#            taco_sample = convert_espnet_to_taco_batch(subset_x, ys, len(subset_x), self.n_samples_per_input, self.num_gpu, use_speaker_embedding=True)
+#            self.model.loss_fn(*taco_sample[0])
+#            import ipdb;ipdb.set_trace(context=50)
+#            print("")
 
             # chunk: batch slice times samples for each batch element 
             chunk_loss = get_chunk_loss(
