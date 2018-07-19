@@ -148,6 +148,8 @@ def main():
                         help='Maximum length ratio of each sample to input length')
     parser.add_argument('--sample-minlenratio', default=0.2, type=float,
                         help='minimum length ratio of each sample to input length')
+    parser.add_argument('--sample-topk', default=0, type=int,
+                        help='Sample from top-K labels')
     parser.add_argument('--sample-scaling', default=0.1, type=float,
                         help='Scaling factor for sample log-likelihood')
     args = parser.parse_args()
