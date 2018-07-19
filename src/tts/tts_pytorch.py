@@ -155,7 +155,7 @@ class CustomConverter(object):
             ys = Variable(ys, volatile=not is_training)
             labels = Variable(labels, volatile=not is_training)
 
-        if sum(self.device) >= 0:
+        if self.device != [-1] and sum(self.device) >= 0:
             xs = xs.cuda()
             ys = ys.cuda()
             labels = labels.cuda()

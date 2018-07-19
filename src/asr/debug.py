@@ -88,9 +88,9 @@ def get_tts_data(data, sort_by, parent, num_gpu, use_speaker_embedding=True, ret
         return texts, textlens, feats, spembs
 
 
-def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio,sample_scaling, num_gpu, mtlalpha, model, parent):
+def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio, sample_scaling, num_gpu, mtlalpha, model, parent):
 
-    # Get samples for this batch subset 
+    # Get samples for this batch subset
     loss_ctc, loss_att, ys = generate(
         x,
         n_samples_per_input=n_samples_per_input,
@@ -102,7 +102,7 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio,sa
     expanded_x = []
     import copy
     for example_index, example_x in enumerate(x):
-        for n in range(n_samples_per_input): 
+        for n in range(n_samples_per_input):
 
             # Assumes samples are placed consecutively
             text_sample = ys[example_index*n_samples_per_input + n]
@@ -144,9 +144,9 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio,sa
     acc = 0.
     loss = None
     alpha = mtlalpha
-    
+
     alpha = 0 # Debug
-    
+
     if alpha == 0:
         loss = loss_att
         loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
@@ -159,7 +159,7 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio,sa
         loss = alpha * loss_ctc + (1 - alpha) * loss_att
         loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
         loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
-    
+
     # Get posterior probabilities from loss. We need to normalize
     # within the samples
     prob = sample_scaling * -loss
@@ -168,13 +168,15 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio,sa
     prob = torch.nn.Softmax(dim=1)(prob)
     # (batch_size * n_samples_per_input)
     prob = prob.view(-1)
-   
-    # 
-    sample_loss = (
-        1. / num_gpu * 
-        model.loss_fn(*samples).mean(2).mean(1) * 
-        prob
-    ).mean()
+
+    #
+    try:
+        sample_loss = (model.loss_fn(*samples).mean(2).mean(1) * prob).mean()
+        sample_loss = sample_loss * 1. / num_gpu
+    except:
+        import ipdb;ipdb.set_trace(context=30)
+        sample_loss = (model.loss_fn(*samples).mean(2).mean(1) * prob).mean()
+        sample_loss = sample_loss * 1. / num_gpu
 
     if math.isnan(sample_loss.data):
         import ipdb;ipdb.set_trace(context=50)

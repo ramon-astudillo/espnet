@@ -171,7 +171,10 @@ class ExpectedLoss(torch.nn.Module):
 
 
 def pad_list(xs, pad_value=float("nan")):
-    assert isinstance(xs[0], Variable)
+    try:
+        assert isinstance(xs[0], Variable)
+    except:
+        import ipdb;ipdb.set_trace(context=30)
     n_batch = len(xs)
     max_len = max(x.size(0) for x in xs)
     if torch_is_old:

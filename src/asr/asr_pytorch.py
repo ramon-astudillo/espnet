@@ -146,13 +146,13 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
     '''Custom updater for pytorch using samples as additional input and summing over them to get total graident update'''
 
     def __init__(self, model, grad_clip_threshold, train_iter,
-                 optimizer, converter, device, predictor, n_samples_per_input, 
+                 optimizer, converter, device, predictor, n_samples_per_input,
                  maxlenratio, minlenratio, mtlalpha, sample_scaling):
         super(PytorchSeqUpdaterKaldiSamples, self).__init__(
             train_iter, optimizer, converter=converter, device=None)
         self.model = model
         self.grad_clip_threshold = grad_clip_threshold
-        self.num_gpu = len(device)
+        self.num_gpu = len(device) if device != [-1] else 0
         self.predictor = predictor
         self.n_samples_per_input = n_samples_per_input
         self.maxlenratio = maxlenratio
@@ -178,40 +178,27 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
             logging.warning('batch size is less than number of gpus. Ignored')
             return
         x = self.converter(batch)
-        # TODO: Find an order way to intro speaker ids into code 
+        # TODO: Find an order way to intro speaker ids into code
         #for example in x:
-        #    example[1]['input'][2]['feat'] = kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat']) 
+        #    example[1]['input'][2]['feat'] = kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
 
-        # Cluster {batch x samples} set into #samples chunks 
+        # Cluster {batch x samples} set into #samples chunks
         batch_size = len(x)
         # Other values are possible as long as it is a divisor of batch x
         # samples
-        cluster_size = batch_size
-        num_clusters = (batch_size * self.n_samples_per_input) / cluster_size
+        cluster_size = self.n_samples_per_input
+        num_clusters = batch_size / cluster_size
 
-        optimizer.zero_grad()  
+        optimizer.zero_grad()
         from debug import get_chunk_loss
         for cluster_index in range(num_clusters):
 
-            # Select subset of batch elements 
+            # Select subset of batch elements
             cluster_start = cluster_index*cluster_size
             cluster_end = (cluster_size+1)*cluster_size
             subset_x = x[cluster_start:cluster_end]
 
-#            # Get samples for this batch subset 
-#            loss_ctc, loss_att, ys = self.predictor.generate(
-#                subset_x,
-#                n_samples_per_input=self.n_samples_per_input,
-#                maxlenratio=self.maxlenratio,
-#                minlenratio=self.minlenratio
-#            )
-#            from taco_cycle_consistency import convert_espnet_to_taco_batch
-#            taco_sample = convert_espnet_to_taco_batch(subset_x, ys, len(subset_x), self.n_samples_per_input, self.num_gpu, use_speaker_embedding=True)
-#            self.model.loss_fn(*taco_sample[0])
-#            import ipdb;ipdb.set_trace(context=50)
-#            print("")
-
-            # chunk: batch slice times samples for each batch element 
+            # chunk: batch slice times samples for each batch element
             chunk_loss = get_chunk_loss(
                 subset_x,
                 self.predictor.generate,
@@ -230,13 +217,13 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
                 chunk_loss.backward(
                     torch.ones(self.num_gpu),
                     retain_graph=True
-                )  
+                )
             else:
                 chunk_loss.backward(retain_graph=True)  # Backprop
 
         # Update the network parameters
         import ipdb;ipdb.set_trace(context=50)
-        optimizer.step() 
+        optimizer.step()
 
         loss.detach()  # Truncate the graph
         # compute the gradient norm to check if it is normal or not
