@@ -178,80 +178,64 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
             logging.warning('batch size is less than number of gpus. Ignored')
             return
         x = self.converter(batch)
+        # TODO: Find an order way to intro speaker ids into code 
+        #for example in x:
+        #    example[1]['input'][2]['feat'] = kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat']) 
 
-#        # Print samples:
-#        if self.verbose > 0 and self.char_list is not None:
-#            for i in six.moves.range(batch_size):
-#                for j in six.moves.range(self.n_samples_per_input):
-#                    y_str = "".join([self.char_list[int(idx)] for idx in ys[i * self.n_samples_per_input + j]])
-#                    #print("generate[%d,%d]: %.4f %.4f " % (i, j, logprob[i, j], prob[i,j]) + y_str)
+        # Cluster {batch x samples} set into #samples chunks 
+        batch_size = len(x)
+        # Other values are possible as long as it is a divisor of batch x
+        # samples
+        cluster_size = batch_size
+        num_clusters = (batch_size * self.n_samples_per_input) / cluster_size
+
+        # Get samples for this batch subset 
+        loss_ctc, loss_att, ys = self.predictor.generate(
+            x,
+            n_samples_per_input=self.n_samples_per_input,
+            maxlenratio=self.maxlenratio,
+            minlenratio=self.minlenratio
+        )
+        from taco_cycle_consistency import convert_espnet_to_taco_batch
+        taco_sample = convert_espnet_to_taco_batch(x, ys, len(x), self.n_samples_per_input, self.num_gpu, use_speaker_embedding=True)
+        self.model.loss_fn(*taco_sample[0])
+        import ipdb;ipdb.set_trace(context=50)
+        print("")
 
         optimizer.zero_grad()  
-        for sample_index in range(self.n_samples_per_input):
+        from debug import get_chunk_loss
+        for cluster_index in range(num_clusters):
 
-            # Get samples from the model
-            # sample output sequence with the current model
-            # TODO: The creatio of the samples could be moved out. Cost could
-            # be decoupled from that.
-            loss_ctc, loss_att, y = self.predictor.generate(
-                x,
-                n_samples_per_input=1,
-                maxlenratio=self.maxlenratio,
-                minlenratio=self.minlenratio
+            # Select subset of batch elements 
+            cluster_start = cluster_index*cluster_size
+            cluster_end = (cluster_size+1)*cluster_size
+            subset_x = x[cluster_start:cluster_end]
+
+            # chunk: batch slice times samples for each batch element 
+            chunk_loss = get_chunk_loss(
+                subset_x,
+                self.predictor.generate,
+                self.n_samples_per_input,
+                self.maxlenratio,
+                self.minlenratio,
+                self.sample_scaling,
+                self.num_gpu,
+                self.mtlalpha,
+                self.model,
+                self
             )
 
-            # Merge losses and get the data fro logging
-            acc = 0.
-            loss = None
-            alpha = self.mtlalpha
-            total_probs = []
-            if alpha == 0:
-                loss = loss_att
-                loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
-                loss_ctc_data = None
-            elif alpha == 1:
-                loss = loss_ctc
-                loss_att_data = None
-                loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
-            else:
-                loss = alpha * loss_ctc + (1 - alpha) * loss_att
-                loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
-                loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
-    
-            batch_size = int(len(loss.data) / self.n_samples_per_input)
-            # loss -> posterior probs
-    
-            prob = self.sample_scaling * -loss
-            
-            # Compute loss for this sample
-            sample_loss = (1. / self.num_gpu * self.model(x, y) * prob).sum()
-
-            if math.isnan(sample_loss.data):
-                import ipdb;ipdb.set_trace(context=50)
-                print("")
-
-#            loss_data = self.loss.data[0] if torch_is_old else float(self.loss)
-#            if loss_data < CTC_LOSS_THRESHOLD and not math.isnan(loss_data):
-#                self.reporter.report(loss_ctc_data, loss_att_data, acc, loss_data)
-#            else:
-#                logging.warning('loss (=%f) is not correct', self.loss.data)
-
-            # Backprop and accumulate the gradients
+            # Backprop and add this chunk gradients to the total
             if self.num_gpu > 1:
-                sample_loss.backward(
+                chunk_loss.backward(
                     torch.ones(self.num_gpu),
                     retain_graph=True
                 )  
             else:
-                sample_loss.backward(retain_graph=True)  # Backprop
+                chunk_loss.backward(retain_graph=True)  # Backprop
 
-            total_probs.append(prob.data)
-
-        # TODO: Here need to scale gradient by sum of sample probability
-        # total_probs
+        # Update the network parameters
         import ipdb;ipdb.set_trace(context=50)
-
-        # update the network parameters
         optimizer.step() 
 
         loss.detach()  # Truncate the graph

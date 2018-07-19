@@ -159,67 +159,15 @@ class ExpectedLoss(torch.nn.Module):
         # needed for Tacotron loss
         self.ngpu = args.ngpu
 
-    def forward(self, x, y):
+    def forward(self, taco_sample):
         '''Loss forward
 
         :param x:
+        :param ys:  self.n_samples_per_input per each x entry
         :return:
         '''
-#        # sample output sequence with the current model
-#        loss_ctc, loss_att, ys = self.predictor.generate(x,
-#                                         n_samples_per_input=self.n_samples_per_input,
-#                                         maxlenratio=self.maxlenratio,
-#                                         minlenratio=self.minlenratio)
-#
-#        acc = 0.
-#        loss = None
-#        alpha = self.mtlalpha
-#        if alpha == 0:
-#            loss = loss_att
-#            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
-#            loss_ctc_data = None
-#        elif alpha == 1:
-#            loss = loss_ctc
-#            loss_att_data = None
-#            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
-#        else:
-#            loss = alpha * loss_ctc + (1 - alpha) * loss_att
-#            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
-#            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
-#
-#        batch = int(len(loss.data) / self.n_samples_per_input)
-#        # loss -> posterior probs
-#        logprob = -loss.data.view(batch, self.n_samples_per_input)
-#        prob = torch.exp((logprob - torch.max(logprob, dim=1, keepdim=True)[0]) * self.sample_scaling)
-#        prob /= torch.sum(prob, dim=1, keepdim=True)
-#        if self.verbose > 0 and self.char_list is not None:
-#            for i in six.moves.range(batch):
-#                for j in six.moves.range(self.n_samples_per_input):
-#                    y_str = "".join([self.char_list[int(idx)] for idx in ys[i * self.n_samples_per_input + j]])
-#                    #print("generate[%d,%d]: %.4f %.4f " % (i, j, logprob[i, j], prob[i,j]) + y_str)
-
-        reward = 'Tacotron'
-        if reward == 'Tacotron':
-
-            # Construct a Tacotron batch from ESPNet batch and the samples
-            from taco_cycle_consistency import convert_espnet_to_taco_batch
-            taco_sample = convert_espnet_to_taco_batch(
-                x,
-                y,
-                len(x),
-                1,  # self.n_samples_per_input                
-                self.ngpu,
-                # FIXME: This is hardcoded for simplicity
-                use_speaker_embedding=True,
-            )
-
-            # Compute
-            loss = self.loss_fn(*taco_sample[0]).mean(2).mean(1)
-            #loss = self.loss_fn(*taco_sample[0])
-        else:
-            raise NotImplementedError
-
-        return loss
+        # Compute
+        return self.loss_fn(*taco_sample).mean(2).mean(1)
 
 
 def pad_list(xs, pad_value=float("nan")):

@@ -56,7 +56,6 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
 
     # Set to eval mode
     tacotron2.eval()
-
     # Define loss
     loss = Tacotron2Loss(
         model=tacotron2,
@@ -98,7 +97,7 @@ def sanity_check_json(valid_json):
     ), "Expected inputs 0 and 1 (asr-mel, tts-mel) to be same size"
 
 
-def convert_espnet_to_taco_batch(x, ys, batch, n_samples_per_input,
+def convert_espnet_to_taco_batch(x, ys, batch_size, n_samples_per_input,
                                  ngpu, use_speaker_embedding=False):
     """
     Convert data to format suitable for Tacotron, borrow code from
@@ -127,7 +126,7 @@ def convert_espnet_to_taco_batch(x, ys, batch, n_samples_per_input,
     samples_batch = []
     for sample_index in range(n_samples_per_input):
         batch_sample = []
-        for batch_index in range(batch):
+        for batch_index in range(batch_size):
             text_sample = ys[batch_index + sample_index]
             content = {
                 u'input': [
