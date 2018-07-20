@@ -90,7 +90,7 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
 
 
 class PytorchSeqUpdaterKaldi(training.StandardUpdater):
-    '''Custom updater for pytorch using samples as additional input and summing over them to get total graident update'''
+    '''Custom updater for pytorch'''
 
     def __init__(self, model, grad_clip_threshold, train_iter,
                  optimizer, converter, device, subbatch_size=None):
@@ -120,15 +120,12 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
             return
         x = self.converter(batch)
 
-        # Cluster {batch x samples} set into #samples chunks
-        batch_size = len(x)
-        # Other values are possible as long as it is a divisor of batch x
-        # samples
-        num_clusters = int(math.ceil(batch_size * 1. / self.subbatch_size))
-
-        optimizer.zero_grad()
-
         if self.subbatch_size:
+
+            batch_size = len(x)
+            num_clusters = int(math.ceil(batch_size * 1. / self.subbatch_size))
+
+            optimizer.zero_grad()
 
             for subbatch_index in range(num_clusters):
     
@@ -176,9 +173,6 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
         else:
             optimizer.step()
         delete_feat(x)
-
-        import ipdb;ipdb.set_trace(context=50)
-        print("")
 
 
 class DataParallel(torch.nn.DataParallel):
@@ -261,8 +255,6 @@ def train(args):
     # specify model architecture
     e2e = E2E(idim, odim, args)
     model = Loss(e2e, args.mtlalpha)
-    # Keep original loss predictor
-    predictor = model.predictor
     if args.prior_model:
         model.load_state_dict(torch.load(args.prior_model))
     if args.expected_loss:

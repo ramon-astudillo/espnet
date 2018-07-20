@@ -370,10 +370,7 @@ class Tacotron2(torch.nn.Module):
         if isinstance(ilens, torch.Tensor) or isinstance(ilens, np.ndarray):
             ilens = list(map(int, ilens))
 
-        try:
-            hs, hlens = self.enc(xs, ilens)
-        except:
-            import ipdb;ipdb.set_trace(context=50)
+        hs, hlens = self.enc(xs, ilens)
         if self.spk_embed_dim is not None:
             spembs = F.normalize(spembs).unsqueeze(1).expand(-1, hs.size(1), -1)
             hs = torch.cat([hs, spembs], dim=-1)

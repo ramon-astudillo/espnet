@@ -25,7 +25,6 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from ctc_prefix_score import CTCPrefixScore
 from e2e_asr_common import end_detect
 from e2e_asr_common import label_smoothing_dist
-#from debug import extract_tacotron_features
 
 
 torch_is_old = torch.__version__.startswith("0.3.")
@@ -209,15 +208,12 @@ class ExpectedLoss(torch.nn.Module):
         :param ys:  self.n_samples_per_input per each x entry
         :return:
         '''
-        # Get samples for this batch subset
-        loss_ctc, loss_att, ys = self.predictor.generate(
-            x,
-            n_samples_per_input=self.n_samples_per_input,
-            maxlenratio=self.maxlenratio,
-            minlenratio=self.minlenratio
-        )
-    
-        # Merge losses and get the data for logging
+        # sample output sequence with the current model
+        loss_ctc, loss_att, ys = self.predictor.generate(x,
+                                         n_samples_per_input=self.n_samples_per_input,
+                                         maxlenratio=self.maxlenratio,
+                                         minlenratio=self.minlenratio)
+
         acc = 0.
         loss = None
         alpha = self.mtlalpha
