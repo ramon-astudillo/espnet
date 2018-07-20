@@ -249,7 +249,12 @@ class ExpectedLoss(torch.nn.Module):
         prob = prob.view(-1)
     
         #
-        sample_loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
+        if torch_is_old:
+            taco_loss = self.loss_fn(*x_taco).mean(2).mean(1).detach()
+        else:
+            with torch.no_grad():
+                taco_loss = self.loss_fn(*x_taco).mean(2).mean(1)
+        sample_loss = (taco_loss * prob).mean()
         sample_loss = sample_loss * 1. / self.ngpu 
     
         if math.isnan(sample_loss.data):
@@ -2156,15 +2161,15 @@ class Decoder(torch.nn.Module):
         indices = [np.array(range(odim), dtype=np.int32)] * n_samples
         y_gen = np.full((maxlen, n_samples), self.ignore_id, dtype=np.int64)
         not_ended = np.array([True] * n_samples, dtype=np.bool_)
-        # make a mask to avoid blank and sentence end prediction
+        # make a mask to avoid <blank>:0, <unk>:1, and sentence end prediction
         suppress_mask = np.zeros((1, odim), dtype=np.float32)
         suppress_mask[0, (0, 1, self.eos)] = logzero
         if torch_is_old:
             suppress_mask = to_cuda(self, Variable(torch.from_numpy(suppress_mask), volatile=True))
         else:
             suppress_mask = to_cuda(self, Variable(torch.from_numpy(suppress_mask)))
-            suppress_mask.requires_grad_(requires_grad=False)
-        ignore_id_mask = np.ones(odim, dtype=np.float32)
+        suppress_mask_without_eos = suppress_mask.clone()
+        suppress_mask_without_eos[0, self.eos] = 0.
         y_lens = np.zeros(n_samples, dtype=np.int32)
         # loop for an output sequence
         loss_list = []
@@ -2181,7 +2186,7 @@ class Decoder(torch.nn.Module):
                 z_list[l], c_list[l] = self.decoder[l](
                     z_list[l - 1], (z_list[l], c_list[l]))
             if i == minlen:  # exclude <eos> while sequence is short
-                suppress_mask[0, self.eos] = 0.
+                suppress_mask = suppress_mask_without_eos
             oy = self.output(z_list[-1]) + suppress_mask
             if 0 < topk < odim:
                 topk_logits, topk_indices = torch.topk(oy, topk, dim=1)
