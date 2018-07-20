@@ -247,7 +247,7 @@ class ExpectedLoss(torch.nn.Module):
         # (batch_size * n_samples_per_input)
 
         # Inform user
-        if self.verbose > 0 and self.char_list is not None:
+        if self.verbose > 1 and self.char_list is not None:
             for i in six.moves.range(len(x)):
                 for j in six.moves.range(self.n_samples_per_input):
                     k = i * self.n_samples_per_input + j

@@ -184,6 +184,7 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
             logging.warning('grad norm is nan. Do not update model.')
         else:
             optimizer.step()
+        torch.cuda.empty_cache()
         delete_feat(x)
 
 
@@ -288,7 +289,7 @@ def train(args):
             )
         model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
         # Reduce paralelizable batch size
-        subbatch_size = 6
+        subbatch_size = 6 
     else:
         subbatch_size = None
 
