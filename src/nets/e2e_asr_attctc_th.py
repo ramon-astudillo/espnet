@@ -201,6 +201,11 @@ class ExpectedLoss(torch.nn.Module):
         # needed for Tacotron loss
         self.ngpu = args.ngpu
 
+    def batch_factor(self, x):
+        '''Returns the factor by which a batch is normalized e.g. number of
+        elements in the batch'''
+        return len(x)            
+
     def forward(self, x):
         '''Loss forward
 
@@ -240,19 +245,21 @@ class ExpectedLoss(torch.nn.Module):
         prob = prob.view(len(x), self.n_samples_per_input)
         prob = torch.nn.Softmax(dim=1)(prob)
         # (batch_size * n_samples_per_input)
-        prob = prob.view(-1)
 
         # Inform user
         if self.verbose > 0 and self.char_list is not None:
-            for i in six.moves.range(batch_size):
+            for i in six.moves.range(len(x)):
                 for j in six.moves.range(self.n_samples_per_input):
                     k = i * self.n_samples_per_input + j
                     y_str = "".join([self.char_list[int(idx)] for idx in ys[k]])
                     logging.info("generation[%d,%d]: %.4f " % (i, j, prob[i, j]) + y_str)
 
+        # unravel pprobabilities
+        prob = prob.view(-1)
+
         # Weighted loss
         self.loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
-        self.loss = sample_loss * 1. / self.ngpu 
+        self.loss = self.loss * 1. / self.ngpu 
 
         loss_data = self.loss.data[0] if torch_is_old else float(self.loss)
         if loss_data < CTC_LOSS_THRESHOLD and not math.isnan(loss_data):
