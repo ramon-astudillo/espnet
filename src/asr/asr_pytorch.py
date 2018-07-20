@@ -127,10 +127,19 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
 
             optimizer.zero_grad()
 
+            # Get batch averaging constant
+            batch_averaging = []
             for subbatch_index in range(num_clusters):
-    
-                # FIXME: Normalization by number of batch elements
-                #batch_norm = self.model.normalizer(subset_x)
+                # Select subset of batch elements
+                subbatch_start = subbatch_index * self.subbatch_size
+                subbatch_end = (subbatch_index + 1) * self.subbatch_size
+                subset_x = x[subbatch_start:subbatch_end]
+                batch_averaging.append(self.model.batch_factor(subset_x))
+            batch_averaging = [
+                ba * 1./ sum(batch_averaging) for ba in batch_averaging
+            ]
+
+            for subbatch_index in range(num_clusters):
     
                 # Select subset of batch elements
                 subbatch_start = subbatch_index * self.subbatch_size
@@ -138,7 +147,10 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
                 subset_x = x[subbatch_start:subbatch_end]
     
                 # chunk: batch slice times samples for each batch element
-                chunk_loss = self.model(subset_x)
+                chunk_loss = (
+                    batch_averaging[subbatch_index] * 
+                    self.model(subset_x)
+                )
                 # Backprop and add this chunk gradients to the total
                 if self.num_gpu > 1:
                     chunk_loss.backward(

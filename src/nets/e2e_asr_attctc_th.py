@@ -202,6 +202,11 @@ class ExpectedLoss(torch.nn.Module):
         # needed for Tacotron loss
         self.ngpu = args.ngpu
 
+    def batch_factor(self, x):
+        '''Returns the factor by which a batch is normalized e.g. number of
+        elements in the batch'''
+        return len(x)            
+
     def forward(self, x):
         '''Loss forward
 
@@ -219,9 +224,6 @@ class ExpectedLoss(torch.nn.Module):
         acc = 0.
         loss = None
         alpha = self.mtlalpha
-    
-        alpha = 0 # Debug
-    
         if alpha == 0:
             loss = loss_att
             loss_att_data = loss_att.data[0] if torch_is_old else loss_att.detach().cpu().numpy()
@@ -242,22 +244,33 @@ class ExpectedLoss(torch.nn.Module):
         # Get posterior probabilities from loss. We need to normalize
         # within the samples
         prob = self.sample_scaling * -loss
-        # FIXME: Underflow problem at the momment
         prob = prob.view(len(x), self.n_samples_per_input)
         prob = torch.nn.Softmax(dim=1)(prob)
         # (batch_size * n_samples_per_input)
+
+        # Inform user
+        if self.verbose > 0 and self.char_list is not None:
+            for i in six.moves.range(len(x)):
+                for j in six.moves.range(self.n_samples_per_input):
+                    k = i * self.n_samples_per_input + j
+                    y_str = "".join([self.char_list[int(idx)] for idx in ys[k]])
+                    logging.info("generation[%d,%d]: %.4f " % (i, j, prob[i, j]) + y_str)
+
+        # unravel pprobabilities
         prob = prob.view(-1)
-    
-        #
-        sample_loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
-        sample_loss = sample_loss * 1. / self.ngpu 
-    
-        if math.isnan(sample_loss.data):
-            import ipdb;ipdb.set_trace(context=50)
-            print("")
+
+        # Weighted loss
+        self.loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
+        self.loss = self.loss * 1. / self.ngpu 
+
+        loss_data = self.loss.data[0] if torch_is_old else float(self.loss)
+        if loss_data < CTC_LOSS_THRESHOLD and not math.isnan(loss_data):
+            self.reporter.report(loss_ctc_data, loss_att_data, acc, loss_data)
+        else:
+            logging.warning('loss (=%f) is not correct', self.loss.data)
 
         # Compute
-        return sample_loss
+        return self.loss
 
 
 def pad_list(xs, pad_value=float("nan")):
