@@ -93,12 +93,13 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
     '''Custom updater for pytorch'''
 
     def __init__(self, model, grad_clip_threshold, train_iter,
-                 optimizer, converter, device):
+                 optimizer, converter, device, subbatch_size=None):
         super(PytorchSeqUpdaterKaldi, self).__init__(
             train_iter, optimizer, converter=converter, device=None)
         self.model = model
         self.grad_clip_threshold = grad_clip_threshold
-        self.num_gpu = len(device)
+        self.num_gpu = len(device) if device != [-1] else 0
+        self.subbatch_size = subbatch_size
 
     # The core part of the update routine can be customized by overriding.
     def update_core(self):
@@ -119,14 +120,46 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
             return
         x = self.converter(batch)
 
-        # Compute the loss at this time step and accumulate it
-        loss = 1. / self.num_gpu * self.model(x)
-        optimizer.zero_grad()  # Clear the parameter gradients
-        if self.num_gpu > 1:
-            loss.backward(torch.ones(self.num_gpu))  # Backprop
+        if self.subbatch_size:
+
+            batch_size = len(x)
+            num_clusters = int(math.ceil(batch_size * 1. / self.subbatch_size))
+
+            optimizer.zero_grad()
+
+            for subbatch_index in range(num_clusters):
+    
+                # FIXME: Normalization by number of batch elements
+                #batch_norm = self.model.normalizer(subset_x)
+    
+                # Select subset of batch elements
+                subbatch_start = subbatch_index * self.subbatch_size
+                subbatch_end = (subbatch_index + 1) * self.subbatch_size
+                subset_x = x[subbatch_start:subbatch_end]
+    
+                # chunk: batch slice times samples for each batch element
+                chunk_loss = self.model(subset_x)
+                # Backprop and add this chunk gradients to the total
+                if self.num_gpu > 1:
+                    chunk_loss.backward(
+                        torch.ones(self.num_gpu),
+                        retain_graph=True
+                    )
+                else:
+                    chunk_loss.backward(retain_graph=True)  # Backprop
+            chunk_loss.detach()  # Truncate the graph
+
         else:
-            loss.backward()  # Backprop
-        loss.detach()  # Truncate the graph
+
+            # Compute the loss at this time step and accumulate it
+            loss = 1. / self.num_gpu * self.model(x)
+            optimizer.zero_grad()  # Clear the parameter gradients
+            if self.num_gpu > 1:
+                loss.backward(torch.ones(self.num_gpu))  # Backprop
+            else:
+                loss.backward()  # Backprop
+            loss.detach()  # Truncate the graph
+
         # compute the gradient norm to check if it is normal or not
         if torch_is_old:
             clip = torch.nn.utils.clip_grad_norm
@@ -242,6 +275,10 @@ def train(args):
                 'Unknown expected loss: %s' % args.expected_loss
             )
         model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
+        # Reduce paralelizable batch size
+        subbatch_size = 6
+    else:
+        subbatch_size = None
 
     # write model config
     if not os.path.exists(args.outdir):
@@ -302,7 +339,14 @@ def train(args):
 
     # Set up a trainer
     updater = PytorchSeqUpdaterKaldi(
-        model, args.grad_clip, train_iter, optimizer, converter=converter_kaldi, device=gpu_id)
+        model,
+        args.grad_clip,
+        train_iter,
+        optimizer,
+        converter=converter_kaldi,
+        device=gpu_id,
+        subbatch_size=subbatch_size
+    )
     trainer = training.Trainer(
         updater, (args.epochs, 'epoch'), out=args.outdir)
 

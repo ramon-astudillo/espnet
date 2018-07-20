@@ -34,6 +34,48 @@ CTC_SCORING_RATIO = 1.5
 MAX_DECODER_OUTPUT = 5
 
 
+def extract_tacotron_features(x, ys, n_samples_per_input, num_gpu): 
+
+    # Expand the batch for each sample, extract tacotron 
+    expanded_x = []
+    from tts_pytorch import CustomConverter
+    import copy
+    for example_index, example_x in enumerate(x):
+        for n in range(n_samples_per_input):
+    
+            # Assumes samples are placed consecutively
+            text_sample = ys[example_index*n_samples_per_input + n]
+            new_example_x = copy.deepcopy(example_x)
+    
+            # Remove ASR features
+            del new_example_x[1]['input'][0]
+    
+            # Replace output sequence
+            new_example_x[1]['output'][0]['shape'][0] = len(text_sample)
+            new_example_x[1]['output'][0]['text'] = None
+            new_example_x[1]['output'][0]['token'] = None
+            new_example_x[1]['output'][0]['tokenid'] = " ".join(
+                map(str, list(text_sample.data.cpu().numpy()))
+            )
+            expanded_x.append(new_example_x)
+    
+    # Number of gpus
+    if num_gpu == 1:
+        gpu_id = range(num_gpu)
+    elif num_gpu > 1:
+        gpu_id = range(num_gpu)
+    else:
+        gpu_id = [-1]
+    
+    # Construct a Tacotron batch from ESPNet batch and the samples
+    # Tacotron converter
+    taco_converter = CustomConverter(
+        gpu_id,
+        use_speaker_embedding=True
+    )
+    return taco_converter([expanded_x])
+
+
 def to_cuda(m, x):
     assert isinstance(m, torch.nn.Module)
     device_id = torch.cuda.device_of(next(m.parameters()).data).idx
@@ -164,6 +206,7 @@ class ExpectedLoss(torch.nn.Module):
         '''Loss forward
 
         :param x:
+        :param ys:  self.n_samples_per_input per each x entry
         :return:
         '''
         # sample output sequence with the current model
@@ -176,6 +219,9 @@ class ExpectedLoss(torch.nn.Module):
         acc = 0.
         loss = None
         alpha = self.mtlalpha
+    
+        alpha = 0 # Debug
+    
         if alpha == 0:
             loss = loss_att
             loss_att_data = loss_att.data[0] if torch_is_old else loss_att.detach().cpu().numpy()
@@ -189,59 +235,29 @@ class ExpectedLoss(torch.nn.Module):
             loss_att_data = loss_att.data[0] if torch_is_old else loss_att.detach().cpu().numpy()
             loss_ctc_data = loss_ctc.data[0] if torch_is_old else loss_ctc.detach().cpu().numpy()
 
-        batch = int(len(loss.data) / self.n_samples_per_input)
-        # loss -> posterior probs
-        prob = F.softmax(-loss.view(batch, self.n_samples_per_input) * self.sample_scaling, dim=1)
-        #if self.verbose > 0 and self.char_list is not None:
-        #    for i in six.moves.range(batch):
-        #        for j in six.moves.range(self.n_samples_per_input):
-        #            k = i * self.n_samples_per_input + j
-        #            y_str = "".join([self.char_list[int(idx)] for idx in ys[k]])
-        #            logging.info("generation[%d,%d]: %.4f " % (i, j, prob[i, j]) + y_str)
-        # add eos to ys
-        eos = self.predictor.eos
-        if torch_is_old:
-            ys = [to_cuda(self, Variable(torch.from_numpy(np.append(y, eos)), volatile=not self.training)) for y in ys]
-        else:
-            ys = [to_cuda(self, torch.from_numpy(np.append(y, eos))) for y in ys]
+        x_taco = extract_tacotron_features(
+            x, ys, self.n_samples_per_input, self.ngpu
+        )
+    
+        # Get posterior probabilities from loss. We need to normalize
+        # within the samples
+        prob = self.sample_scaling * -loss
+        # FIXME: Underflow problem at the momment
+        prob = prob.view(len(x), self.n_samples_per_input)
+        prob = torch.nn.Softmax(dim=1)(prob)
+        # (batch_size * n_samples_per_input)
+        prob = prob.view(-1)
+    
+        #
+        sample_loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
+        sample_loss = sample_loss * 1. / self.ngpu 
+    
+        if math.isnan(sample_loss.data):
+            import ipdb;ipdb.set_trace(context=50)
+            print("")
 
-        reward = 'Tacotron'
-        if reward == 'Tacotron':
-
-            # Construct a Tacotron batch from ESPNet batch and the samples
-            from taco_cycle_consistency import convert_espnet_to_taco_batch
-            taco_sample_batches = convert_espnet_to_taco_batch(
-                x,
-                ys,
-                batch,
-                self.n_samples_per_input,
-                self.ngpu,
-                # FIXME: This is hardcoded for simplicity
-                use_speaker_embedding=True,
-            )
-
-            # Compute
-            loss_per_sample = []
-            for taco_sample in taco_sample_batches:
-                loss_per_sample.append(
-                    # taco_sample.data
-                    self.loss_fn(*taco_sample).mean(2).mean(1)
-                )
-
-        else:
-            raise NotImplementedError
-
-        self.loss = torch.sum(
-            torch.cat(loss_per_sample) * Variable(prob.view(-1))
-        ) / batch
-
-        loss_data = self.loss.data[0] if torch_is_old else float(self.loss)
-        if loss_data < CTC_LOSS_THRESHOLD and not math.isnan(loss_data):
-            self.reporter.report(loss_ctc_data, loss_att_data, acc, loss_data)
-        else:
-            logging.warning('loss (=%f) is not correct', self.loss.data)
-
-        return self.loss
+        # Compute
+        return sample_loss
 
 
 def pad_list(xs, pad_value=float("nan")):
@@ -2201,7 +2217,7 @@ class Decoder(torch.nn.Module):
             y_list.append(y_seq)
             if self.verbose > 0 and self.char_list is not None:
                 y_str = "".join([self.char_list[int(idx)] for idx in y_seq])
-                logging.info("generation[%d]: %.4f " % (i, sample_loss.data[i]) + y_str)
+                #logging.info("generation[%d]: %.4f " % (i, sample_loss.data[i]) + y_str)
 
         return sample_loss, y_list
 
