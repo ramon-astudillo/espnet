@@ -90,75 +90,16 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
 
 
 class PytorchSeqUpdaterKaldi(training.StandardUpdater):
-    '''Custom updater for pytorch'''
+    '''Custom updater for pytorch using samples as additional input and summing over them to get total graident update'''
 
     def __init__(self, model, grad_clip_threshold, train_iter,
-                 optimizer, converter, device):
+                 optimizer, converter, device, subbatch_size=None):
         super(PytorchSeqUpdaterKaldi, self).__init__(
             train_iter, optimizer, converter=converter, device=None)
         self.model = model
         self.grad_clip_threshold = grad_clip_threshold
-        self.num_gpu = len(device)
-
-    # The core part of the update routine can be customized by overriding.
-    def update_core(self):
-        # When we pass one iterator and optimizer to StandardUpdater.__init__,
-        # they are automatically named 'main'.
-        train_iter = self.get_iterator('main')
-        optimizer = self.get_optimizer('main')
-
-        # Get the next batch ( a list of json files)
-        batch = train_iter.__next__()
-
-        # read scp files
-        # x: original json with loaded features
-        #    will be converted to chainer variable later
-        # batch only has one minibatch utterance, which is specified by batch[0]
-        if len(batch[0]) < self.num_gpu:
-            logging.warning('batch size is less than number of gpus. Ignored')
-            return
-        x = self.converter(batch)
-
-        # Compute the loss at this time step and accumulate it
-        loss = 1. / self.num_gpu * self.model(x)
-        optimizer.zero_grad()  # Clear the parameter gradients
-        if self.num_gpu > 1:
-            loss.backward(torch.ones(self.num_gpu))  # Backprop
-        else:
-            loss.backward()  # Backprop
-        loss.detach()  # Truncate the graph
-        # compute the gradient norm to check if it is normal or not
-        if torch_is_old:
-            clip = torch.nn.utils.clip_grad_norm
-        else:
-            clip = torch.nn.utils.clip_grad_norm_
-        grad_norm = clip(
-            self.model.parameters(), self.grad_clip_threshold)
-        logging.info('grad norm={}'.format(grad_norm))
-        if math.isnan(grad_norm):
-            logging.warning('grad norm is nan. Do not update model.')
-        else:
-            optimizer.step()
-        delete_feat(x)
-
-
-class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
-    '''Custom updater for pytorch using samples as additional input and summing over them to get total graident update'''
-
-    def __init__(self, model, grad_clip_threshold, train_iter,
-                 optimizer, converter, device, predictor, n_samples_per_input,
-                 maxlenratio, minlenratio, mtlalpha, sample_scaling):
-        super(PytorchSeqUpdaterKaldiSamples, self).__init__(
-            train_iter, optimizer, converter=converter, device=None)
-        self.model = model
-        self.grad_clip_threshold = grad_clip_threshold
         self.num_gpu = len(device) if device != [-1] else 0
-        self.predictor = predictor
-        self.n_samples_per_input = n_samples_per_input
-        self.maxlenratio = maxlenratio
-        self.minlenratio = minlenratio
-        self.mtlalpha = mtlalpha
-        self.sample_scaling = sample_scaling
+        self.subbatch_size = subbatch_size
 
     # The core part of the update routine can be customized by overriding.
     def update_core(self):
@@ -178,49 +119,50 @@ class PytorchSeqUpdaterKaldiSamples(training.StandardUpdater):
             logging.warning('batch size is less than number of gpus. Ignored')
             return
         x = self.converter(batch)
-        # TODO: Find an order way to intro speaker ids into code
-        #for example in x:
-        #    example[1]['input'][2]['feat'] = kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
 
         # Cluster {batch x samples} set into #samples chunks
         batch_size = len(x)
         # Other values are possible as long as it is a divisor of batch x
         # samples
-        subbatch_size = 5 
-        num_clusters = int(math.ceil(batch_size * 1. / subbatch_size))
+        num_clusters = int(math.ceil(batch_size * 1. / self.subbatch_size))
 
         optimizer.zero_grad()
-        from debug import get_chunk_loss
-        for subbatch_index in range(num_clusters):
 
-            # Select subset of batch elements
-            subbatch_start = subbatch_index * subbatch_size
-            subbatch_end = (subbatch_index + 1) * subbatch_size
-            subset_x = x[subbatch_start:subbatch_end]
+        if self.subbatch_size:
 
-            # chunk: batch slice times samples for each batch element
-            chunk_loss = get_chunk_loss(
-                subset_x,
-                self.predictor.generate,
-                self.n_samples_per_input,
-                self.maxlenratio,
-                self.minlenratio,
-                self.sample_scaling,
-                self.num_gpu,
-                self.mtlalpha,
-                self.model,
-                self
-            )
-            # Backprop and add this chunk gradients to the total
+            for subbatch_index in range(num_clusters):
+    
+                # FIXME: Normalization by number of batch elements
+                #batch_norm = self.model.normalizer(subset_x)
+    
+                # Select subset of batch elements
+                subbatch_start = subbatch_index * self.subbatch_size
+                subbatch_end = (subbatch_index + 1) * self.subbatch_size
+                subset_x = x[subbatch_start:subbatch_end]
+    
+                # chunk: batch slice times samples for each batch element
+                chunk_loss = self.model(subset_x)
+                # Backprop and add this chunk gradients to the total
+                if self.num_gpu > 1:
+                    chunk_loss.backward(
+                        torch.ones(self.num_gpu),
+                        retain_graph=True
+                    )
+                else:
+                    chunk_loss.backward(retain_graph=True)  # Backprop
+            chunk_loss.detach()  # Truncate the graph
+
+        else:
+
+            # Compute the loss at this time step and accumulate it
+            loss = 1. / self.num_gpu * self.model(x)
+            optimizer.zero_grad()  # Clear the parameter gradients
             if self.num_gpu > 1:
-                chunk_loss.backward(
-                    torch.ones(self.num_gpu),
-                    retain_graph=True
-                )
+                loss.backward(torch.ones(self.num_gpu))  # Backprop
             else:
-                chunk_loss.backward(retain_graph=True)  # Backprop
+                loss.backward()  # Backprop
+            loss.detach()  # Truncate the graph
 
-        chunk_loss.detach()  # Truncate the graph
         # compute the gradient norm to check if it is normal or not
         if torch_is_old:
             clip = torch.nn.utils.clip_grad_norm
@@ -341,6 +283,10 @@ def train(args):
                 'Unknown expected loss: %s' % args.expected_loss
             )
         model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
+        # Reduce paralelizable batch size
+        subbatch_size = 6
+    else:
+        subbatch_size = None
 
     # write model config
     if not os.path.exists(args.outdir):
@@ -400,32 +346,14 @@ def train(args):
         valid, 1, repeat=False, shuffle=False)
 
     # Set up a trainer
-    if args.expected_loss:
-        # Update for samples. Only updates after all samples have been
-        # processed
-        updater = PytorchSeqUpdaterKaldiSamples(
-            model,  # This contains to the predictor
-            args.grad_clip,
-            train_iter,
-            optimizer,
-            converter=converter_kaldi,
-            device=gpu_id,
-            # Sampling parameters
-            predictor=predictor,
-            n_samples_per_input=args.n_samples_per_input,
-            maxlenratio=args.sample_maxlenratio,
-            minlenratio=args.sample_minlenratio,
-            mtlalpha=args.mtlalpha,
-            sample_scaling=args.sample_scaling
-        )
-    else:
-        updater = PytorchSeqUpdaterKaldi(
-            model,
-            args.grad_clip,
-            train_iter,
-            optimizer,
-            converter=converter_kaldi,
-            device=gpu_id
+    updater = PytorchSeqUpdaterKaldi(
+        model,
+        args.grad_clip,
+        train_iter,
+        optimizer,
+        converter=converter_kaldi,
+        device=gpu_id,
+        subbatch_size=subbatch_size
     )
     trainer = training.Trainer(
         updater, (args.epochs, 'epoch'), out=args.outdir)

@@ -25,6 +25,7 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from ctc_prefix_score import CTCPrefixScore
 from e2e_asr_common import end_detect
 from e2e_asr_common import label_smoothing_dist
+#from debug import extract_tacotron_features
 
 
 torch_is_old = torch.__version__.startswith("0.3.")
@@ -32,6 +33,48 @@ torch_is_old = torch.__version__.startswith("0.3.")
 CTC_LOSS_THRESHOLD = 10000
 CTC_SCORING_RATIO = 1.5
 MAX_DECODER_OUTPUT = 5
+
+
+def extract_tacotron_features(x, ys, n_samples_per_input, num_gpu): 
+
+    # Expand the batch for each sample, extract tacotron 
+    expanded_x = []
+    from tts_pytorch import CustomConverter
+    import copy
+    for example_index, example_x in enumerate(x):
+        for n in range(n_samples_per_input):
+    
+            # Assumes samples are placed consecutively
+            text_sample = ys[example_index*n_samples_per_input + n]
+            new_example_x = copy.deepcopy(example_x)
+    
+            # Remove ASR features
+            del new_example_x[1]['input'][0]
+    
+            # Replace output sequence
+            new_example_x[1]['output'][0]['shape'][0] = len(text_sample)
+            new_example_x[1]['output'][0]['text'] = None
+            new_example_x[1]['output'][0]['token'] = None
+            new_example_x[1]['output'][0]['tokenid'] = " ".join(
+                map(str, list(text_sample.data.cpu().numpy()))
+            )
+            expanded_x.append(new_example_x)
+    
+    # Number of gpus
+    if num_gpu == 1:
+        gpu_id = range(num_gpu)
+    elif num_gpu > 1:
+        gpu_id = range(num_gpu)
+    else:
+        gpu_id = [-1]
+    
+    # Construct a Tacotron batch from ESPNet batch and the samples
+    # Tacotron converter
+    taco_converter = CustomConverter(
+        gpu_id,
+        use_speaker_embedding=True
+    )
+    return taco_converter([expanded_x])
 
 
 def to_cuda(m, x):
@@ -159,15 +202,64 @@ class ExpectedLoss(torch.nn.Module):
         # needed for Tacotron loss
         self.ngpu = args.ngpu
 
-    def forward(self, taco_sample):
+    def forward(self, x):
         '''Loss forward
 
         :param x:
         :param ys:  self.n_samples_per_input per each x entry
         :return:
         '''
+        # Get samples for this batch subset
+        loss_ctc, loss_att, ys = self.predictor.generate(
+            x,
+            n_samples_per_input=self.n_samples_per_input,
+            maxlenratio=self.maxlenratio,
+            minlenratio=self.minlenratio
+        )
+    
+        # Merge losses and get the data for logging
+        acc = 0.
+        loss = None
+        alpha = self.mtlalpha
+    
+        alpha = 0 # Debug
+    
+        if alpha == 0:
+            loss = loss_att
+            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
+            loss_ctc_data = None
+        elif alpha == 1:
+            loss = loss_ctc
+            loss_att_data = None
+            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+        else:
+            loss = alpha * loss_ctc + (1 - alpha) * loss_att
+            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
+            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+
+        x_taco = extract_tacotron_features(
+            x, ys, self.n_samples_per_input, self.ngpu
+        )
+    
+        # Get posterior probabilities from loss. We need to normalize
+        # within the samples
+        prob = self.sample_scaling * -loss
+        # FIXME: Underflow problem at the momment
+        prob = prob.view(len(x), self.n_samples_per_input)
+        prob = torch.nn.Softmax(dim=1)(prob)
+        # (batch_size * n_samples_per_input)
+        prob = prob.view(-1)
+    
+        #
+        sample_loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
+        sample_loss = sample_loss * 1. / self.ngpu 
+    
+        if math.isnan(sample_loss.data):
+            import ipdb;ipdb.set_trace(context=50)
+            print("")
+
         # Compute
-        return self.loss_fn(*taco_sample).mean(2).mean(1)
+        return sample_loss
 
 
 def pad_list(xs, pad_value=float("nan")):

@@ -158,3 +158,45 @@ def convert_espnet_to_taco_batch(x, ys, batch_size, n_samples_per_input,
             batch_sample.append((x[batch_index][0], content))
         samples_batch.append(taco_converter([batch_sample], True))
     return samples_batch
+
+
+def extract_tacotron_features(x, ys, n_samples_per_input, num_gpu): 
+
+    # Expand the batch for each sample, extract tacotron 
+    expanded_x = []
+    import copy
+    for example_index, example_x in enumerate(x):
+        for n in range(n_samples_per_input):
+    
+            # Assumes samples are placed consecutively
+            text_sample = ys[example_index*n_samples_per_input + n]
+            new_example_x = copy.deepcopy(example_x)
+    
+            # Remove ASR features
+            del new_example_x[1]['input'][0]
+    
+            # Replace output sequence
+            new_example_x[1]['output'][0]['shape'][0] = len(text_sample)
+            new_example_x[1]['output'][0]['text'] = None
+            new_example_x[1]['output'][0]['token'] = None
+            new_example_x[1]['output'][0]['tokenid'] = " ".join(
+                map(str, list(text_sample.data.cpu().numpy()))
+            )
+            expanded_x.append(new_example_x)
+    
+    # Number of gpus
+    if num_gpu == 1:
+        gpu_id = range(num_gpu)
+    elif num_gpu > 1:
+        gpu_id = range(num_gpu)
+    else:
+        gpu_id = [-1]
+    
+    # Construct a Tacotron batch from ESPNet batch and the samples
+    # Tacotron converter
+    from tts_pytorch import CustomConverter
+    taco_converter = CustomConverter(
+        gpu_id,
+        use_speaker_embedding=True
+    )
+    return taco_converter([expanded_x])
