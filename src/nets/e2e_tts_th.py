@@ -199,14 +199,14 @@ class Tacotron2Loss(torch.nn.Module):
                 loss = l1_loss + mse_loss
 
         # report loss values for logging
-        loss_data = loss.data[0] if torch_is_old else loss.item()
-        l1_loss_data = l1_loss.data[0] if torch_is_old else l1_loss.item()
-        mse_loss_data = mse_loss.data[0] if torch_is_old else mse_loss.item()
+        loss_data = loss.data[0] if torch_is_old else loss.detach().cpu().numpy()
+        l1_loss_data = l1_loss.data[0] if torch_is_old else l1_loss.detach().cpu().numpy()
+        mse_loss_data = mse_loss.data[0] if torch_is_old else mse_loss.detach().cpu().numpy()
 
         # TODO: The logic here could be simplified
         if self.reduce:
             if self.use_bce_loss:
-                bce_loss_data = bce_loss.data[0] if torch_is_old else bce_loss.item()
+                bce_loss_data = bce_loss.data[0] if torch_is_old else bce_loss.detach().cpu().numpy()
                 logging.debug("loss = %.3e (bce: %.3e, l1: %.3e, mse: %.3e)" % (
                     loss_data, bce_loss_data, l1_loss_data, mse_loss_data))
                 if self.report:

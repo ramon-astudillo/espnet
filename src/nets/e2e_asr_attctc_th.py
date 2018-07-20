@@ -155,6 +155,7 @@ class ExpectedLoss(torch.nn.Module):
         self.n_samples_per_input = args.n_samples_per_input
         self.maxlenratio = args.sample_maxlenratio
         self.minlenratio = args.sample_minlenratio
+        self.topk = args.sample_topk
         self.sample_scaling = args.sample_scaling
         # needed for Tacotron loss
         self.ngpu = args.ngpu
@@ -168,6 +169,7 @@ class ExpectedLoss(torch.nn.Module):
         # sample output sequence with the current model
         loss_ctc, loss_att, ys = self.predictor.generate(x,
                                          n_samples_per_input=self.n_samples_per_input,
+                                         topk=self.topk,
                                          maxlenratio=self.maxlenratio,
                                          minlenratio=self.minlenratio)
 
@@ -176,27 +178,32 @@ class ExpectedLoss(torch.nn.Module):
         alpha = self.mtlalpha
         if alpha == 0:
             loss = loss_att
-            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
+            loss_att_data = loss_att.data[0] if torch_is_old else loss_att.detach().cpu().numpy()
             loss_ctc_data = None
         elif alpha == 1:
             loss = loss_ctc
             loss_att_data = None
-            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+            loss_ctc_data = loss_ctc.data[0] if torch_is_old else loss_ctc.detach().cpu().numpy()
         else:
             loss = alpha * loss_ctc + (1 - alpha) * loss_att
-            loss_att_data = loss_att.data[0] if torch_is_old else float(loss_att)
-            loss_ctc_data = loss_ctc.data[0] if torch_is_old else float(loss_ctc)
+            loss_att_data = loss_att.data[0] if torch_is_old else loss_att.detach().cpu().numpy()
+            loss_ctc_data = loss_ctc.data[0] if torch_is_old else loss_ctc.detach().cpu().numpy()
 
         batch = int(len(loss.data) / self.n_samples_per_input)
         # loss -> posterior probs
-        logprob = -loss.data.view(batch, self.n_samples_per_input)
-        prob = torch.exp((logprob - torch.max(logprob, dim=1, keepdim=True)[0]) * self.sample_scaling)
-        prob /= torch.sum(prob, dim=1, keepdim=True)
-        if self.verbose > 0 and self.char_list is not None:
-            for i in six.moves.range(batch):
-                for j in six.moves.range(self.n_samples_per_input):
-                    y_str = "".join([self.char_list[int(idx)] for idx in ys[i * self.n_samples_per_input + j]])
-                    #print("generate[%d,%d]: %.4f %.4f " % (i, j, logprob[i, j], prob[i,j]) + y_str)
+        prob = F.softmax(-loss.view(batch, self.n_samples_per_input) * self.sample_scaling, dim=1)
+        #if self.verbose > 0 and self.char_list is not None:
+        #    for i in six.moves.range(batch):
+        #        for j in six.moves.range(self.n_samples_per_input):
+        #            k = i * self.n_samples_per_input + j
+        #            y_str = "".join([self.char_list[int(idx)] for idx in ys[k]])
+        #            logging.info("generation[%d,%d]: %.4f " % (i, j, prob[i, j]) + y_str)
+        # add eos to ys
+        eos = self.predictor.eos
+        if torch_is_old:
+            ys = [to_cuda(self, Variable(torch.from_numpy(np.append(y, eos)), volatile=not self.training)) for y in ys]
+        else:
+            ys = [to_cuda(self, torch.from_numpy(np.append(y, eos))) for y in ys]
 
         reward = 'Tacotron'
         if reward == 'Tacotron':
@@ -474,7 +481,7 @@ class E2E(torch.nn.Module):
         return y
 
     # x[i]: ('utt_id', {'ilen':'xxx',...}})
-    def generate(self, data, n_samples_per_input=10, maxlenratio=1.0, minlenratio=0.3):
+    def generate(self, data, n_samples_per_input=10, topk=0, maxlenratio=1.0, minlenratio=0.3):
         '''E2E forward
 
         :param data:
@@ -509,7 +516,7 @@ class E2E(torch.nn.Module):
         if self.mtlalpha == 1:
             raise Exception('CTC-only mode (mtlalpha=1) is not supported.')
 
-        loss_att, ys = self.dec.generate(hpad, hlens, maxlenratio=maxlenratio, minlenratio=minlenratio)
+        loss_att, ys = self.dec.generate(hpad, hlens, topk=topk, maxlenratio=maxlenratio, minlenratio=minlenratio)
         # 3. CTC loss
         ys = [to_cuda(self, Variable(torch.from_numpy(y))) for y in ys]
         loss_ctc = None
@@ -674,11 +681,20 @@ def mask_by_length_and_multiply(xs, length, fill=0, msize=1):
     assert xs.size(0) == len(length)
     ret = Variable(xs.data.new(xs.size(0) * msize, xs.size(1), xs.size(2)).fill_(fill))
     k = 0
-    for i, l in enumerate(length):
-        for j in range(msize):
-            ret[k, :l] = xs[i, :l]
-            k += 1
-    return ret, length * msize
+    if torch_is_old:
+        new_length = length * msize
+        for i, l in enumerate(length):
+            for j in range(msize):
+                ret[k, :l] = xs[i, :l]
+                k += 1
+    else:
+        new_length = length.new(len(length) * msize)
+        for i, l in enumerate(length):
+            for j in range(msize):
+                ret[k, :l] = xs[i, :l]
+                new_length[k] = length[i]
+                k += 1
+    return ret, new_length
 
 # ------------- Attention Network --------------------------------------------------------------------------------------
 class NoAtt(torch.nn.Module):
@@ -929,7 +945,7 @@ class AttLoc(torch.nn.Module):
         # initialize attention weight with uniform dist.
         if att_prev is None:
             att_prev = [Variable(enc_hs_pad.data.new(
-                l).zero_() + (1.0 / l)) for l in enc_hs_len]
+                int(l)).zero_() + (1.0 / float(l))) for l in enc_hs_len]
             # if no bias, 0 0-pad goes 0
             att_prev = pad_list(att_prev, 0)
 
@@ -2091,7 +2107,7 @@ class Decoder(torch.nn.Module):
         # remove sos
         return nbest_hyps
 
-    def generate(self, hpad, hlen, maxlenratio=1.0, minlenratio=0.3, rnnlm=None):
+    def generate(self, hpad, hlen, topk=0, maxlenratio=1.0, minlenratio=0.3, rnnlm=None):
         '''Decoder generate sequence
 
         :param hs:
@@ -2100,6 +2116,7 @@ class Decoder(torch.nn.Module):
         # get dim, length info
         # initialization
         self.loss = None
+        logzero = -1.0e+10
         n_samples = len(hlen)
         c_list = [self.zero_state(hpad)]
         z_list = [self.zero_state(hpad)]
@@ -2116,17 +2133,23 @@ class Decoder(torch.nn.Module):
         else:
             # maxlen >= 1
             maxlen = max(1, int(maxlenratio * max(hlen)))
-        minlen = int(minlenratio * min(hlen))
+        minlen = int(minlenratio * int(min(hlen)))
         odim = self.eos + 1
         # prepare the first label <sos>
         y = to_cuda(self, Variable(torch.from_numpy(np.full(n_samples, self.sos, dtype=np.int64))))
-        indices = np.array(range(odim), dtype=np.int32)
+        indices = [np.array(range(odim), dtype=np.int32)] * n_samples
         y_gen = np.full((maxlen, n_samples), self.ignore_id, dtype=np.int64)
         not_ended = np.array([True] * n_samples, dtype=np.bool_)
-        # make a mask to avoid sentence end prediction
-        no_end_mask = np.zeros((1, odim), dtype=np.float32)
-        no_end_mask[0, self.eos] = -1.0e+10
-        no_end_mask = to_cuda(self, Variable(torch.from_numpy(no_end_mask)))
+        # make a mask to avoid blank and sentence end prediction
+        suppress_mask = np.zeros((1, odim), dtype=np.float32)
+        suppress_mask[0, (0, 1, self.eos)] = logzero
+        if torch_is_old:
+            suppress_mask = to_cuda(self, Variable(torch.from_numpy(suppress_mask), volatile=True))
+        else:
+            suppress_mask = to_cuda(self, Variable(torch.from_numpy(suppress_mask)))
+            suppress_mask.requires_grad_(requires_grad=False)
+        ignore_id_mask = np.ones(odim, dtype=np.float32)
+        y_lens = np.zeros(n_samples, dtype=np.int32)
         # loop for an output sequence
         loss_list = []
         for i in six.moves.range(maxlen):
@@ -2141,34 +2164,41 @@ class Decoder(torch.nn.Module):
             for l in six.moves.range(1, self.dlayers):
                 z_list[l], c_list[l] = self.decoder[l](
                     z_list[l - 1], (z_list[l], c_list[l]))
-            oy = self.output(z_list[-1])
-            if i <= minlen:  # exclude <eos> while sequence is short
-                oy += no_end_mask
-            sy = F.softmax(oy, dim=1).data.cpu().numpy()
+            if i == minlen:  # exclude <eos> while sequence is short
+                suppress_mask[0, self.eos] = 0.
+            oy = self.output(z_list[-1]) + suppress_mask
+            if 0 < topk < odim:
+                topk_logits, topk_indices = torch.topk(oy, topk, dim=1)
+                sy = F.softmax(topk_logits, dim=1).data.cpu().numpy()
+                indices = topk_indices.data.cpu().numpy()
+            else:
+                sy = F.softmax(oy, dim=1).data.cpu().numpy()
 
             if i < maxlen-1:
                 for j in six.moves.range(n_samples):
                     if not_ended[j]:
-                        y_gen[i, j] = np.random.choice(indices, 1, p=sy[j]) # or argmax in some cases
+                        y_gen[i, j] = np.random.choice(indices[j], 1, p=sy[j]) # or argmax in some cases
                 not_ended &= y_gen[i, :]!=self.eos
+                y_lens[y_gen[i, :]==self.eos] = i + 1
             else:
                 y_gen[i, not_ended] = self.eos
+                y_lens[not_ended] = i + 1
             del sy
 
             t = to_cuda(self, Variable(torch.from_numpy(y_gen[i])))
             ce_loss = F.cross_entropy(oy, t, ignore_index=self.ignore_id, size_average=False, reduce=False)
             loss_list.append(ce_loss)
-
-        sample_loss = torch.sum(torch.stack(loss_list), dim=0)
+            # all ended -> break
+            if np.sum(not_ended)==0:
+                break
+        # loss array needs to be masked by 0 to exclude indeterminate valuse for igored_id
+        masked_loss = mask_by_length(torch.stack(loss_list).transpose(1, 0), y_lens, fill=0.0)
+        sample_loss = torch.sum(masked_loss, dim=1)
         # show predicted character sequence for debug
         y_list = []
         for i in six.moves.range(n_samples):
-            y_seq = []
-            for j in six.moves.range(maxlen):
-                y_seq.append(y_gen[j, i])
-                if y_gen[j, i] == self.eos:
-                    break
-            y_list.append(np.array(y_seq, dtype=np.int32))
+            y_seq = np.array(y_gen[:y_lens[i]-1, i], dtype=np.int32)
+            y_list.append(y_seq)
             if self.verbose > 0 and self.char_list is not None:
                 y_str = "".join([self.char_list[int(idx)] for idx in y_seq])
                 logging.info("generation[%d]: %.4f " % (i, sample_loss.data[i]) + y_str)
