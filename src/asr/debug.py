@@ -129,9 +129,6 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio, s
         gpu_id = [-1]
 
     # Construct a Tacotron batch from ESPNet batch and the samples
-    # texts, textlens, feats, labels, featlens, spembs
-    #taco_sample = get_tts_data(expanded_x, 'text', model, num_gpu, return_targets=True)
-    # Tacotron converter
     from tts_pytorch import CustomConverter
     taco_converter = CustomConverter(
         gpu_id,
@@ -171,9 +168,5 @@ def get_chunk_loss(x, generate, n_samples_per_input, maxlenratio, minlenratio, s
     #
     sample_loss = (model.loss_fn(*samples).mean(2).mean(1) * prob).mean()
     sample_loss = sample_loss * 1. / num_gpu
-
-    if math.isnan(sample_loss.data):
-        import ipdb;ipdb.set_trace(context=50)
-        print("")
 
     return sample_loss
