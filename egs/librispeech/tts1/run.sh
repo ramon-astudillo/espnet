@@ -68,7 +68,7 @@ minlenratio=0.0  # minimum length of generated samples = input length * minlenra
 # Set this to somewhere where you want to put your data, or where
 # someone else has already put it.  You'll want to change this
 # if you're not on the CLSP grid.
-datadir=/export/a15/vpanayotov/data
+datadir=data
 
 # base url for downloads.
 data_url=www.openslr.org/resources/12
@@ -84,13 +84,13 @@ set -e
 set -u
 set -o pipefail
 
-train_set=train_clean_460
+train_set=train_clean_100
 train_dev=dev
 eval_set=test_clean
 
 if [ ${stage} -le -1 ]; then
     echo "stage -1: Data Download"
-    for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
+    for part in dev-clean test-clean dev-other test-other train-clean-100; do
         local/download_and_untar.sh ${datadir} ${data_url} ${part}
     done
 fi
@@ -99,7 +99,7 @@ if [ ${stage} -le 0 ]; then
     ### Task dependent. You have to make data the following preparation part by yourself.
     ### But you can utilize Kaldi recipes in most cases
     echo "stage 0: Data preparation"
-    for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
+    for part in dev-clean test-clean dev-other test-other train-clean-100; do
         # use underscore-separated names in data directories.
         local/data_prep.sh ${datadir}/LibriSpeech/${part} data/$(echo ${part} | sed s/-/_/g)
     done
@@ -114,14 +114,14 @@ if [ ${stage} -le 1 ]; then
     echo "stage 1: Feature Generation"
 
     fbankdir=fbank
-    for x in dev_clean test_clean train_clean_100 train_clean_360; do
+    for x in dev_clean test_clean train_clean_100; do
         local/make_fbank.sh --cmd "${train_cmd}" --nj ${nj} \
             --fs ${fs} --fmax "${fmax}" --fmin "${fmin}" \
             --n_mels ${n_mels} --n_fft ${n_fft} --n_shift ${n_shift} \
             data/${x} exp/make_fbank/${x} ${fbankdir}
     done
 
-    utils/combine_data.sh data/${train_set}_org data/train_clean_100 data/train_clean_360
+    utils/combine_data.sh data/${train_set}_org data/train_clean_100
     utils/combine_data.sh data/${train_dev}_org data/dev_clean
 
     # remove utt having more than 3000 frames

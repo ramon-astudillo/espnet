@@ -184,7 +184,6 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
             logging.warning('grad norm is nan. Do not update model.')
         else:
             optimizer.step()
-        import ipdb;ipdb.set_trace(context=50)
         delete_feat(x)
 
 
