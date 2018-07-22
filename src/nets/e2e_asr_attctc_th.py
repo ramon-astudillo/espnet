@@ -260,7 +260,12 @@ class ExpectedLoss(torch.nn.Module):
         prob = prob.view(-1)
 
         # Weighted loss
-        self.loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
+        if torch_is_old:
+            taco_loss = self.loss_fn(*x_taco).mean(2).mean(1).detach()
+        else:
+            with torch.no_grad():
+                taco_loss = self.loss_fn(*x_taco).mean(2).mean(1)
+        self.loss = (taco_loss * prob).mean()
         self.loss = self.loss * 1. / self.ngpu 
 
         loss_data = self.loss.data[0] if torch_is_old else float(self.loss)
