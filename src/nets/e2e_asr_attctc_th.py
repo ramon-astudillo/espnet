@@ -265,6 +265,7 @@ class ExpectedLoss(torch.nn.Module):
         else:
             with torch.no_grad():
                 taco_loss = self.loss_fn(*x_taco).mean(2).mean(1)
+
         self.loss = (taco_loss * prob).mean()
         self.loss = self.loss * 1. / self.ngpu 
 
