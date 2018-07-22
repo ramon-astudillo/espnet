@@ -260,7 +260,13 @@ class ExpectedLoss(torch.nn.Module):
         prob = prob.view(-1)
 
         # Weighted loss
-        self.loss = (self.loss_fn(*x_taco).mean(2).mean(1) * prob).mean()
+        if torch_is_old:
+            taco_loss = self.loss_fn(*x_taco).mean(2).mean(1).detach()
+        else:
+            with torch.no_grad():
+                taco_loss = self.loss_fn(*x_taco).mean(2).mean(1)
+
+        self.loss = (taco_loss * prob).mean()
         self.loss = self.loss * 1. / self.ngpu 
 
         loss_data = self.loss.data[0] if torch_is_old else float(self.loss)
@@ -2171,10 +2177,7 @@ class Decoder(torch.nn.Module):
         # make a mask to avoid <blank>:0, <unk>:1, and sentence end prediction
         suppress_mask = np.zeros((1, odim), dtype=np.float32)
         suppress_mask[0, (0, 1, self.eos)] = logzero
-        if torch_is_old:
-            suppress_mask = to_cuda(self, Variable(torch.from_numpy(suppress_mask), volatile=True))
-        else:
-            suppress_mask = to_cuda(self, Variable(torch.from_numpy(suppress_mask)))
+        suppress_mask = to_cuda(self, Variable(torch.from_numpy(suppress_mask)))
         suppress_mask_without_eos = suppress_mask.clone()
         suppress_mask_without_eos[0, self.eos] = 0.
         y_lens = np.zeros(n_samples, dtype=np.int32)

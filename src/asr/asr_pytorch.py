@@ -140,15 +140,15 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
             ]
 
             for subbatch_index in range(num_clusters):
-    
+
                 # Select subset of batch elements
                 subbatch_start = subbatch_index * self.subbatch_size
                 subbatch_end = (subbatch_index + 1) * self.subbatch_size
                 subset_x = x[subbatch_start:subbatch_end]
-    
+
                 # chunk: batch slice times samples for each batch element
                 chunk_loss = (
-                    batch_averaging[subbatch_index] * 
+                    batch_averaging[subbatch_index] *
                     self.model(subset_x)
                 )
                 # Backprop and add this chunk gradients to the total
