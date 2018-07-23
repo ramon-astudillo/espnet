@@ -516,11 +516,14 @@ class E2E(torch.nn.Module):
 
     # x[i]: ('utt_id', {'ilen':'xxx',...}})
     def generate(self, data, n_samples_per_input=10, topk=0, maxlenratio=1.0, minlenratio=0.3):
-        '''E2E forward
+        '''E2E generate
 
         :param data:
         :return:
         '''
+        if not torch_is_old:
+            torch.set_grad_enabled(self.training)
+
         # utt list of frame x dim
         xs = [d[1]['feat'] for d in data]
 
@@ -539,7 +542,7 @@ class E2E(torch.nn.Module):
         if self.training:
             hs = [to_cuda(self, Variable(torch.from_numpy(xx))) for xx in xs]
         else:
-            hs = [to_cuda(self, Variable(torch.from_numpy(xx), volatile=True)) for xx in xs]
+            hs = [to_cuda(self, Variable(torch.from_numpy(xx), volatile=not self.training)) for xx in xs]
 
         # 1. encoder
         xpad = pad_list(hs)
