@@ -236,11 +236,7 @@ class ExpectedLoss(torch.nn.Module):
             loss = alpha * loss_ctc + (1 - alpha) * loss_att
             loss_att_data = loss_att.data[0] if torch_is_old else loss_att.detach().cpu().numpy()
             loss_ctc_data = loss_ctc.data[0] if torch_is_old else loss_ctc.detach().cpu().numpy()
-
-        x_taco = extract_tacotron_features(
-            x, ys, self.n_samples_per_input, self.ngpu
-        )
-    
+   
         # Get posterior probabilities from loss. We need to normalize
         # within the samples
         prob = self.sample_scaling * -loss
@@ -259,13 +255,18 @@ class ExpectedLoss(torch.nn.Module):
         # unravel probabilities
         prob = prob.view(-1)
 
-        # Weighted loss
+        # LOSS SPECIFIC: Feature extraction for the loss
+        x_taco = extract_tacotron_features(
+            x, ys, self.n_samples_per_input, self.ngpu
+        )
+        # Compute loss for each sample
         if torch_is_old:
             taco_loss = self.loss_fn(*x_taco).mean(2).mean(1).detach()
         else:
             with torch.no_grad():
                 taco_loss = self.loss_fn(*x_taco).mean(2).mean(1)
 
+        # Expected loss
         self.loss = (taco_loss * prob).mean()
         self.loss = self.loss * 1. / self.ngpu 
 
