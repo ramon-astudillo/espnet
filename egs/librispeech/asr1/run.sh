@@ -91,13 +91,13 @@ set -e
 set -u
 set -o pipefail
 
-train_set=train_100
+train_set=train_460
 train_dev=dev
 recog_set="test_clean test_other dev_clean dev_other"
 
 if [ ${stage} -le -1 ]; then
     echo "stage -1: Data Download"
-    for part in dev-clean test-clean dev-other test-other train-clean-100; do
+    for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360; do
         local/download_and_untar.sh ${datadir} ${data_url} ${part}
     done
 fi
@@ -106,7 +106,7 @@ if [ ${stage} -le 0 ]; then
     ### Task dependent. You have to make data the following preparation part by yourself.
     ### But you can utilize Kaldi recipes in most cases
     echo "stage 0: Data preparation"
-    for part in dev-clean test-clean dev-other test-other train-clean-100; do
+    for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360; do
         # use underscore-separated names in data directories.
         local/data_prep.sh ${datadir}/LibriSpeech/${part} data/$(echo ${part} | sed s/-/_/g)
     done
@@ -120,11 +120,11 @@ if [ ${stage} -le 1 ]; then
     echo "stage 1: Feature Generation"
     fbankdir=fbank
     # Generate the fbank features; by default 80-dimensional fbanks with pitch on each frame
-    for x in dev_clean test_clean dev_other test_other train_clean_100; do
+    for x in dev_clean test_clean dev_other test_other train_clean_100 train_clean_360; do
         steps/make_fbank_pitch.sh --cmd "$train_cmd" --nj 32 data/${x} exp/make_fbank/${x} ${fbankdir}
     done
 
-    utils/combine_data.sh data/${train_set}_org data/train_clean_100 
+    utils/combine_data.sh data/${train_set}_org data/train_clean_100 data/train_clean_360
     utils/combine_data.sh data/${train_dev}_org data/dev_clean data/dev_other
 
     # remove utt having more than 3000 frames
