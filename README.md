@@ -81,6 +81,20 @@ $ cd tools
 $ make -f conda.mk -j
 ```
 
+### Troubleshooting
+
+On some Linux platforms warp-ctc will fail to compile for Pytorch 4.0 due to
+old GCC version. Put in your `~/.bashrc` the following
+
+```
+# This is needed for warp-ctc to compile with Pytorch 0.4
+export CUDA_TOOLKIT_ROOT_DIR=$CUDAROOT
+export CC=/usr/bin/gcc-6
+export CXX=/usr/bin/gcc-6
+```
+
+remember to delete the `warp_ctc` folder before re-installing.
+
 ## Execution of example scripts
 Move to an example directory under the `egs` directory.
 We prepare several major ASR benchmarks including WSJ, CHiME-4, and TED.

@@ -286,6 +286,8 @@ def train(args):
             raise NotImplemented(
                 'Unknown expected loss: %s' % args.expected_loss
             )
+
+        # Expected loss
         model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
         # Reduce paralelizable batch size
         subbatch_size = 6

@@ -155,7 +155,8 @@ def argument_parser(sys_argv):
     parser.add_argument(
         '--ark-class',
         type=str,
-        help='optional json output file'
+        choices=['matrix', 'vector'],
+        help='Type of ark file (this is relevant for the Kaldi calls)'
     )
     parser.add_argument(
         '--in-json-file',
@@ -176,8 +177,7 @@ def argument_parser(sys_argv):
     parser.add_argument(
         '--out-json-file',
         type=str,
-        choices=['matrix', 'vector'],
-        help='Type of ark file (this is relevant for the Kaldi calls)'
+        help='optional json output file'
     )
     parser.add_argument(
         '--action',
