@@ -235,22 +235,21 @@ if [ ${stage} -le 2 ]; then
 
 fi
 
-exit
-
 if [ ${stage} -le 3 ]; then
     echo "stage 3: x-vector extraction"
     # Make MFCCs and compute the energy-based VAD for each dataset
     mfccdir=mfcc
     vaddir=mfcc
-    for name in ${train_set} ${train_dev} ${eval_set}; do
+    for name in dev_clean test_clean dev_other test_other train_clean_360; do
+        printf "make_fbank: \033[34m${name}\033[0m\n"    
         utils/copy_data_dir.sh data/${name} data/${name}_mfcc
         steps/make_mfcc.sh \
             --write-utt2num-frames true \
             --mfcc-config conf/mfcc.conf \
-            --nj ${nj} --cmd "$train_cmd" \
+            --nj 40 --cmd "$train_cmd" \
             data/${name}_mfcc exp/make_mfcc $mfccdir
         utils/fix_data_dir.sh data/${name}_mfcc
-        sid/compute_vad_decision.sh --nj ${nj} --cmd "$train_cmd" \
+        sid/compute_vad_decision.sh --nj 41 --cmd "$train_cmd" \
             data/${name}_mfcc exp/make_vad ${vaddir}
         utils/fix_data_dir.sh data/${name}_mfcc
     done
@@ -280,6 +279,9 @@ if [ ${stage} -le 3 ]; then
             --verbose 1
     done
 fi
+
+exit
+
 
 dict=data/lang_1char/${train_set}_units.txt
 echo "dictionary: ${dict}"
