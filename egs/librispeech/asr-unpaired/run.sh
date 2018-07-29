@@ -1,4 +1,4 @@
-#!/bin/bash -x
+#!/bin/bash 
 
 # Copyright 2017 Johns Hopkins University (Shinji Watanabe)
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
@@ -21,6 +21,7 @@ resume=        # Resume the training from snapshot
 do_delta=false # true when using CNN
 
 # Tacotron architecture
+tacotron_model=../tts1/exp/train_no_dev_taco2_enc512-3x5x512-1x512_dec2x1024_pre2x256_post5x5x512_att128-15x32_cm_bn_cc_msk_pw20.0_do0.5_zo0.1_lr1e-3_ep1e-6_wd0.0_bs64_sd1/results/model.conf
 # Tacotron config
 fs=16000    # sampling frequency
 fmax=""     # maximum frequency
@@ -31,6 +32,7 @@ taco_n_shift=512     # number of shift points
 taco_win_length=1024 # number of samples in analysis window
 
 # network archtecture
+prior_model=../asr1/exp/train_460_blstmp_e8_subsample1_2_2_1_1_unit320_proj320_d1_unit300_location_aconvc10_aconvf100_mtlalpha0.5_adadelta_bs50_mli800_mlo150/results/model.conf
 # encoder related
 etype=blstmp     # encoder architecture type
 elayers=8
@@ -95,6 +97,18 @@ if [ ! -z $gpu ]; then
     fi
 fi
 
+# Check trained tts model exists
+if [ ! -f ${tacotron_model} ];then
+    echo "Missing trained tts model in\n\n${tacotron_model}\n"    
+    exit
+fi
+
+# Check trained asr model exists
+if [ ! -f ${prior_model} ];then
+    echo "Missing trained asr model in\n\n${prior_model}\n"    
+    exit
+fi
+
 # Set bash to 'debug' mode, it will exit on :
 # -e 'error', -u 'undefined variable', -o ... 'error in pipeline', -x 'print commands',
 set -e
@@ -137,10 +151,10 @@ if [ ${stage} -le 1 ]; then
     utils/combine_data.sh data/${train_set}_org data/train_clean_360 
     utils/combine_data.sh data/${train_dev}_org data/dev_clean data/dev_other
 
-    # remove utt having more than 3000 frames
-    # remove utt having more than 400 characters
-    remove_longshortdata.sh --maxframes 3000 --maxchars 400 data/${train_set}_org data/${train_set}
-    remove_longshortdata.sh --maxframes 3000 --maxchars 400 data/${train_dev}_org data/${train_dev}
+    # remove utt having more than 1500 frames
+    # remove utt having more than 300 characters
+    remove_longshortdata.sh --maxframes 1500 --maxchars 300 data/${train_set}_org data/${train_set}
+    remove_longshortdata.sh --maxframes 1500 --maxchars 300 data/${train_dev}_org data/${train_dev}
 
     # compute global CMVN
     compute-cmvn-stats scp:data/${train_set}/feats.scp data/${train_set}/cmvn.ark
@@ -148,12 +162,12 @@ if [ ${stage} -le 1 ]; then
     # dump features for training
     if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d ${feat_tr_dir}/storage ]; then
     utils/create_split_dir.pl \
-        /export/b{14,15,16,17}/${USER}/espnet-data/egs/librispeech/asr1/dump/${train_set}/delta${do_delta}/storage \
+        /export/b{14,15,16,12}/${USER}/espnet-data/egs/librispeech/asr1/dump/${train_set}/delta${do_delta}/storage \
         ${feat_tr_dir}/storage
     fi
     if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d ${feat_dt_dir}/storage ]; then
     utils/create_split_dir.pl \
-        /export/b{14,15,16,17}/${USER}/espnet-data/egs/librispeech/asr1/dump/${train_dev}/delta${do_delta}/storage \
+        /export/b{14,15,16,12}/${USER}/espnet-data/egs/librispeech/asr1/dump/${train_dev}/delta${do_delta}/storage \
         ${feat_dt_dir}/storage
     fi
     dump.sh --cmd "$train_cmd" --nj 80 --do_delta $do_delta \
@@ -168,10 +182,33 @@ if [ ${stage} -le 1 ]; then
     done
 fi
 
+dict=data/lang_1char/${train_set}_units.txt
+echo "dictionary: ${dict}"
+if [ ${stage} -le 2 ]; then
+    ### Task dependent. You have to check non-linguistic symbols used in the corpus.
+    echo "stage 2: Dictionary and Json Data Preparation"
+    mkdir -p data/lang_1char/
+    echo "<unk> 1" > ${dict} # <unk> must be 1, 0 will be used for "blank" in CTC
+    text2token.py -s 1 -n 1 data/${train_set}/text | cut -f 2- -d" " | tr " " "\n" \
+    | sort | uniq | grep -v -e '^\s*$' | awk '{print $0 " " NR+1}' >> ${dict}
+    wc -l ${dict}
+
+    # make json labels
+    data2json.sh --feat ${feat_tr_dir}/feats.scp \
+         data/${train_set} ${dict} > ${feat_tr_dir}/data.json
+    data2json.sh --feat ${feat_dt_dir}/feats.scp \
+         data/${train_dev} ${dict} > ${feat_dt_dir}/data.json
+    for rtask in ${recog_set}; do
+        feat_recog_dir=${dumpdir}/${rtask}/delta${do_delta}
+        data2json.sh --feat ${feat_recog_dir}/feats.scp \
+            data/${rtask} ${dict} > ${feat_recog_dir}/data.json
+    done
+fi
+
 taco_feat_tr_dir=${dumpdir}/taco_${train_set}/delta${do_delta};mkdir -p ${taco_feat_tr_dir}
 taco_feat_dt_dir=${dumpdir}/taco_${train_dev}/delta${do_delta};mkdir -p ${taco_feat_dt_dir}
-if [ ${stage} -le 2 ]; then
-    echo "stage 2: Tacotron Feature Generation"
+if [ ${stage} -le 3 ]; then
+    echo "stage 3: Tacotron Feature Generation"
     fbankdir=taco_fbank
     # Generate the fbank features; by default 80-dimensional fbanks with pitch
     # on each frame
@@ -179,20 +216,22 @@ if [ ${stage} -le 2 ]; then
         printf "make_fbank: \033[34m${x}\033[0m\n"    
         utils/copy_data_dir.sh data/${x} data/taco_${x}
         # Using librosa
-        local/make_fbank.sh --cmd "${train_cmd}" --nj 9 \
+        local/make_fbank.sh --cmd "${train_cmd}" --nj 40 \
             --fs ${fs} --fmax "${fmax}" --fmin "${fmin}" \
             --n_mels ${n_mels} --n_fft ${taco_n_fft} \
             --n_shift ${taco_n_shift} --win_length $taco_win_length \
             data/taco_${x} exp/taco_make_fbank/${x} ${fbankdir}
     done
 
+    rm -R data/taco_${train_set}_org
     utils/combine_data.sh data/taco_${train_set}_org data/taco_train_clean_360 
+    rm -R data/taco_${train_dev}_org
     utils/combine_data.sh data/taco_${train_dev}_org data/taco_dev_clean data/taco_dev_other
 
-    # remove utt having more than 3000 frames
-    # remove utt having more than 400 characters
-    remove_longshortdata.sh --maxframes 3000 --maxchars 400 data/taco_${train_set}_org data/taco_${train_set}
-    remove_longshortdata.sh --maxframes 3000 --maxchars 400 data/taco_${train_dev}_org data/taco_${train_dev}
+    # remove utt having more than 1500 frames
+    # remove utt having more than 300 characters
+    remove_longshortdata.sh --maxframes 1500 --maxchars 300 data/taco_${train_set}_org data/taco_${train_set}
+    remove_longshortdata.sh --maxframes 1500 --maxchars 300 data/taco_${train_dev}_org data/taco_${train_dev}
 
     # compute global CMVN
     compute-cmvn-stats scp:data/taco_${train_set}/feats.scp data/taco_${train_set}/cmvn.ark
@@ -217,26 +256,34 @@ if [ ${stage} -le 2 ]; then
         --input-name input2 \
         --in-json-file ${feat_tr_dir}/data.json \
         --action add-scp-data-to-input \
-        --verbose 1
+        --verbose 1 \
+        --force
+
     python local/data_io.py \
         --in-scp-file data/taco_${train_dev}/feats.scp \
         --ark-class matrix \
         --input-name input2 \
         --in-json-file ${feat_dt_dir}/data.json \
         --action add-scp-data-to-input \
-        --verbose 1
-    python local/data_io.py \
-        --in-scp-file data/taco_test/feats.scp \
-        --ark-class matrix \
-        --input-name input2 \
-        --in-json-file ${dumpdir}/test/delta${do_delta}/data.json \
-        --action add-scp-data-to-input \
-        --verbose 1
+        --verbose 1 \
+        --force
+
+    for rtask in ${recog_set}; do
+        feat_recog_dir=${dumpdir}/${rtask}/delta${do_delta}
+        python local/data_io.py \
+            --in-scp-file data/taco_${rtask}/feats.scp \
+            --ark-class matrix \
+            --input-name input2 \
+            --in-json-file $feat_recog_dir/data.json \
+            --action add-scp-data-to-input \
+            --verbose 1 \
+            --force
+    done
 
 fi
 
-if [ ${stage} -le 3 ]; then
-    echo "stage 3: x-vector extraction"
+if [ ${stage} -le 4 ]; then
+    echo "stage 4: x-vector extraction"
     # Make MFCCs and compute the energy-based VAD for each dataset
     mfccdir=mfcc
     vaddir=mfcc
@@ -263,47 +310,45 @@ if [ ${stage} -le 3 ]; then
         rm -rf 0008_sitw_v2_1a.tar.gz 0008_sitw_v2_1a
     fi
     # Extract x-vector
-    for name in ${train_set} ${train_dev} ${eval_set}; do
-        sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj ${nj} \
+    for name in dev_clean test_clean dev_other test_other train_clean_360; do
+        sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 40 \
             $nnet_dir data/${name}_mfcc \
             $nnet_dir/xvectors_${name}
     done
+
+    # Append data to jsons
+
     # Update json
-    for name in ${train_set} ${train_dev} ${eval_set}; do
-        python local/data_io.py \
-            --action add-scp-data-to-input \
-            --in-scp-file ${nnet_dir}/xvectors_${name}/xvector.scp \
-            --ark-class vector \
-            --input-name input3 \
-            --in-json-file ${dumpdir}/${name}/data.json \
-            --verbose 1
-    done
-fi
+    python local/data_io.py \
+        --in-scp-file ${nnet_dir}/xvectors_${train_set}/feats.scp \
+        --ark-class matrix \
+        --input-name input3 \
+        --in-json-file ${feat_tr_dir}/data.json \
+        --action add-scp-data-to-input \
+        --verbose 1 \
+        --force
 
-exit
+    python local/data_io.py \
+        --in-scp-file ${nnet_dir}/xvectors_${train_dev}/feats.scp \
+        --ark-class matrix \
+        --input-name input3 \
+        --in-json-file ${feat_dt_dir}/data.json \
+        --action add-scp-data-to-input \
+        --verbose 1 \
+        --force
 
-
-dict=data/lang_1char/${train_set}_units.txt
-echo "dictionary: ${dict}"
-if [ ${stage} -le 4 ]; then
-    ### Task dependent. You have to check non-linguistic symbols used in the corpus.
-    echo "stage 4: Dictionary and Json Data Preparation"
-    mkdir -p data/lang_1char/
-    echo "<unk> 1" > ${dict} # <unk> must be 1, 0 will be used for "blank" in CTC
-    text2token.py -s 1 -n 1 data/${train_set}/text | cut -f 2- -d" " | tr " " "\n" \
-    | sort | uniq | grep -v -e '^\s*$' | awk '{print $0 " " NR+1}' >> ${dict}
-    wc -l ${dict}
-
-    # make json labels
-    data2json.sh --feat ${feat_tr_dir}/feats.scp \
-         data/${train_set} ${dict} > ${feat_tr_dir}/data.json
-    data2json.sh --feat ${feat_dt_dir}/feats.scp \
-         data/${train_dev} ${dict} > ${feat_dt_dir}/data.json
     for rtask in ${recog_set}; do
         feat_recog_dir=${dumpdir}/${rtask}/delta${do_delta}
-        data2json.sh --feat ${feat_recog_dir}/feats.scp \
-            data/${rtask} ${dict} > ${feat_recog_dir}/data.json
+        python local/data_io.py \
+            --in-scp-file ${nnet_dir}/xvectors_${rtask}/feats.scp \
+            --ark-class matrix \
+            --input-name input3 \
+            --in-json-file $feat_recog_dir/data.json \
+            --action add-scp-data-to-input \
+            --verbose 1 \
+            --force
     done
+
 fi
 
 # You can skip this and remove --rnnlm option in the recognition (stage 5)
@@ -374,7 +419,10 @@ if [ ${stage} -le 6 ]; then
         --maxlen-in ${maxlen_in} \
         --maxlen-out ${maxlen_out} \
         --opt ${opt} \
-        --epochs ${epochs}
+        --epochs ${epochs} \
+        --tts-model ${tacotron_model} \
+        --expected-loss tts \
+        --prior-model $prior_model
 fi
 
 if [ ${stage} -le 7 ]; then
