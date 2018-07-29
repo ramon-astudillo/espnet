@@ -84,7 +84,7 @@ def format2dict(kaldi_output):
     return sentence2stats
 
 
-def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2dim, sent2len):
+def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2shape, force):
 
     # SANITY CHECKS:
     # json and scp file list coincide
@@ -92,6 +92,11 @@ def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2dim, sent2len):
     scp_utts = in_scp.keys()
 
     # Sanity check: Same sentences
+    assert len(json_utts) == len(scp_utts), (
+        "JSON has %d utterances, scp has %d utterances, "
+        "expected the same number" % (len(json_utts), len(scp_utts))
+    )
+
     assert sorted(json_utts) == sorted(scp_utts), \
         "Utterance sets in json and scp differ"
     if json_utts != scp_utts:
@@ -104,21 +109,17 @@ def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2dim, sent2len):
     new_json = {'utts': {}}
     for utt_name, utt_content in in_data_json['utts'].items():
 
-        # Get shape
-        if sent2len:
-            # ark-class == matrix
-            shape = [sent2len[utt_name], sent2dim[utt_name]]
-        else:
-            # ark-class == vector
-            shape = [sent2dim[utt_name]]
-
         # Copy old content
         new_json['utts'][utt_name] = utt_content
 
         # Find latest input, increase counter
         feature_exists = False
         for input_index, input in enumerate(utt_content['input']):
-            if input_name == input['name']:
+            if input_name == input['name'] and not force:
+                raise Exception(
+                    "Asked to add scp data into feature %s, but this name is"
+                    " already used. Use --force to overwrite" % input_name
+                )
 #                print(
 #                    "%s: Will overwrite content of %s" %
 #                    (yellow("WARNING"), input_index)
@@ -130,14 +131,14 @@ def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2dim, sent2len):
             new_json['utts'][utt_name]['input'][input_index] = {
                 u'feat': in_scp[utt_name],
                 u'name': input_name,
-                u'shape': shape
+                u'shape': sent2shape[utt_name]
             }
 
         else:
             new_json['utts'][utt_name]['input'].append({
                 u'feat': in_scp[utt_name],
                 u'name': input_name,
-                u'shape': shape
+                u'shape': sent2shape[utt_name]
             })
 
     return new_json
@@ -192,7 +193,12 @@ def argument_parser(sys_argv):
         choices=[1],
         help='Verbosity level'
     )
-
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        default=False,
+        help='Overwrite data if found'
+    )
     args = parser.parse_args(sys_argv)
     if not args.out_json_file:
         args.out_json_file = args.in_json_file
@@ -248,31 +254,33 @@ if __name__ == '__main__':
         # Read number of feature vectors
         if args.ark_class == 'matrix':
 
-            # TODO: This could be done with
-            # matrix = kaldi_io.read_mat(in_scp.values()[0]).shape
-            # but it will likely be slower
+            sent2shape = {
+                utt_name: kaldi_io.read_mat(utt).shape
+                for utt_name, utt in in_scp.items()
+            }
 
-            # Read dimension of the vectors
-            output = kaldi_call(
-                'feat-to-dim',
-                '--print-args=false scp:%s ark,t:-' % args.in_scp_file
-            )
-            sent2dim = format2dict(output)
+            # Old method using Kaldi directly
+#            # Read dimension of the vectors
+#            output = kaldi_call(
+#                'feat-to-dim',
+#                '--print-args=false scp:%s ark,t:-' % args.in_scp_file
+#            )
+#            sent2dim = format2dict(output)
+#
+#            # Read number of frames of the vector
+#            output = kaldi_call(
+#                'feat-to-len',
+#                '--print-args=false scp:%s ark,t:-' % args.in_scp_file
+#            )
+#            sent2len = format2dict(output)
 
-            # Read number of frames of the vector
-            output = kaldi_call(
-                'feat-to-len',
-                '--print-args=false scp:%s ark,t:-' % args.in_scp_file
-            )
-            sent2len = format2dict(output)
         else:
 
             # Read one single vector to get size
             vector_shape = kaldi_io.read_vec_flt(in_scp.values()[0]).shape[0]
-            sent2dim = {}
+            sent2shape = {}
             for utt_name in in_scp.keys():
-                sent2dim[utt_name] = vector_shape
-            sent2len = None
+                sent2shape[utt_name] = [vector_shape]
 
         # Sanity Checks:
         assert 'utts' in in_data_json, \
@@ -283,8 +291,8 @@ if __name__ == '__main__':
             in_data_json,
             in_scp,
             args.input_name,
-            sent2dim,
-            sent2len
+            sent2shape,
+            args.force
         )
 
         # Write final json
@@ -296,7 +304,12 @@ if __name__ == '__main__':
                 sort_keys=True
             ))
         if args.verbose:
-            print("Wrote to %s" % args.out_json_file)
+            print(
+                "Wrote to %s %d utterances" % (
+                    args.out_json_file,
+                    len(new_json['utts'])
+                )
+            )
 
     elif args.action == 'debug':
         # in_scp
