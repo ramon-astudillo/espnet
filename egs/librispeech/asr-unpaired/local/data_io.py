@@ -91,20 +91,6 @@ def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2shape, force):
     json_utts = in_data_json['utts'].keys()
     scp_utts = in_scp.keys()
 
-    # Sanity check: Same sentences
-    assert len(json_utts) == len(scp_utts), (
-        "JSON has %d utterances, scp has %d utterances, "
-        "expected the same number" % (len(json_utts), len(scp_utts))
-    )
-
-    assert sorted(json_utts) == sorted(scp_utts), \
-        "Utterance sets in json and scp differ"
-    if json_utts != scp_utts:
-        print(
-            "%s: Utterance lists in json and scp differ in order" %
-            yellow("WARNING")
-        )
-
     # Add files to json
     new_json = {'utts': {}}
     for utt_name, utt_content in in_data_json['utts'].items():
@@ -113,7 +99,7 @@ def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2shape, force):
         new_json['utts'][utt_name] = utt_content
 
         # Find latest input, increase counter
-        feature_exists = False
+        existing_feature_index = None
         for input_index, input in enumerate(utt_content['input']):
             if input_name == input['name'] and not force:
                 raise Exception(
@@ -124,10 +110,10 @@ def add_scp_data_to_input(in_data_json, in_scp, input_name, sent2shape, force):
 #                    "%s: Will overwrite content of %s" %
 #                    (yellow("WARNING"), input_index)
 #                )
-                feature_exists = True
-                break
+            existing_feature_index = input_index
+            break
 
-        if feature_exists:
+        if existing_feature_index:
             new_json['utts'][utt_name]['input'][input_index] = {
                 u'feat': in_scp[utt_name],
                 u'name': input_name,
@@ -254,10 +240,14 @@ if __name__ == '__main__':
         # Read number of feature vectors
         if args.ark_class == 'matrix':
 
-            sent2shape = {
-                utt_name: kaldi_io.read_mat(utt).shape
-                for utt_name, utt in in_scp.items()
-            }
+            try:
+                sent2shape = {
+                    utt_name: kaldi_io.read_mat(utt).shape
+                    for utt_name, utt in in_scp.items()
+                }
+            except kaldi_io.UnknownMatrixHeader as e:
+                print("\nAre you sure --ark-class is matrix?\n")
+                raise e
 
             # Old method using Kaldi directly
 #            # Read dimension of the vectors
@@ -285,6 +275,26 @@ if __name__ == '__main__':
         # Sanity Checks:
         assert 'utts' in in_data_json, \
             "Missing utts at top level of %s" % in_data_json
+
+        # Sanity check: Same sentences
+        json_utts = in_data_json['utts'].keys()
+        scp_utts = in_scp.keys()
+        assert len(json_utts) == len(scp_utts), (
+            "JSON %s has %d utterances, scp %s has %d utterances, "
+            "expected the same number" % (
+                args.in_json_file,
+                len(json_utts),
+                args.in_scp_file,
+                len(scp_utts)
+            )
+        )
+        assert sorted(json_utts) == sorted(scp_utts), \
+            "Utterance sets in json and scp differ"
+        if json_utts != scp_utts:
+            print(
+                "%s: Utterance lists in json and scp differ in order" %
+                yellow("WARNING")
+            )
 
         # Create a new json by adding the new data
         new_json = add_scp_data_to_input(

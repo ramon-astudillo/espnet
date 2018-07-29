@@ -21,7 +21,7 @@ resume=        # Resume the training from snapshot
 do_delta=false # true when using CNN
 
 # Tacotron architecture
-tacotron_model=../tts1/exp/train_no_dev_taco2_enc512-3x5x512-1x512_dec2x1024_pre2x256_post5x5x512_att128-15x32_cm_bn_cc_msk_pw20.0_do0.5_zo0.1_lr1e-3_ep1e-6_wd0.0_bs64_sd1/results/model.conf
+tacotron_model=../tts1/exp/train_clean_100_taco2_enc512-3x5x512-1x512_dec2x1024_pre2x256_post5x5x512_att128-15x32_cm_bn_cc_msk_pw1.0_do0.5_zo0.1_lr1e-3_ep1e-6_wd0.0_bs32_sort_by_output_mli150_mlo400_sd1/results/model.conf
 # Tacotron config
 fs=16000    # sampling frequency
 fmax=""     # maximum frequency
@@ -115,6 +115,7 @@ set -e
 set -u
 set -o pipefail
 
+# FIXME: These two should be literal set names e.g. train_clean_360
 train_set=unpaired_360
 train_dev=dev
 recog_set="test_clean test_other dev_clean dev_other"
@@ -212,7 +213,7 @@ if [ ${stage} -le 3 ]; then
     fbankdir=taco_fbank
     # Generate the fbank features; by default 80-dimensional fbanks with pitch
     # on each frame
-    for x in dev_clean test_clean dev_other test_other train_clean_360; do
+    for x in ${train_set} ${train_dev} test_clean test_other dev_clean dev_other; do
         printf "make_fbank: \033[34m${x}\033[0m\n"    
         utils/copy_data_dir.sh data/${x} data/taco_${x}
         # Using librosa
@@ -222,16 +223,6 @@ if [ ${stage} -le 3 ]; then
             --n_shift ${taco_n_shift} --win_length $taco_win_length \
             data/taco_${x} exp/taco_make_fbank/${x} ${fbankdir}
     done
-
-    rm -R data/taco_${train_set}_org
-    utils/combine_data.sh data/taco_${train_set}_org data/taco_train_clean_360 
-    rm -R data/taco_${train_dev}_org
-    utils/combine_data.sh data/taco_${train_dev}_org data/taco_dev_clean data/taco_dev_other
-
-    # remove utt having more than 1500 frames
-    # remove utt having more than 300 characters
-    remove_longshortdata.sh --maxframes 1500 --maxchars 300 data/taco_${train_set}_org data/taco_${train_set}
-    remove_longshortdata.sh --maxframes 1500 --maxchars 300 data/taco_${train_dev}_org data/taco_${train_dev}
 
     # compute global CMVN
     compute-cmvn-stats scp:data/taco_${train_set}/feats.scp data/taco_${train_set}/cmvn.ark
@@ -287,7 +278,8 @@ if [ ${stage} -le 4 ]; then
     # Make MFCCs and compute the energy-based VAD for each dataset
     mfccdir=mfcc
     vaddir=mfcc
-    for name in dev_clean test_clean dev_other test_other train_clean_360; do
+    # FIXME: This should take and scp as input
+    for name in ${train_set} ${train_dev} test_clean test_other dev_clean dev_other; do
         printf "make_fbank: \033[34m${name}\033[0m\n"    
         utils/copy_data_dir.sh data/${name} data/${name}_mfcc
         steps/make_mfcc.sh \
@@ -310,18 +302,17 @@ if [ ${stage} -le 4 ]; then
         rm -rf 0008_sitw_v2_1a.tar.gz 0008_sitw_v2_1a
     fi
     # Extract x-vector
-    for name in dev_clean test_clean dev_other test_other train_clean_360; do
+    for name in ${train_set} ${train_dev} test_clean test_other dev_clean dev_other; do
+        printf "x-vector: \033[34m${name}\033[0m\n"    
         sid/nnet3/xvector/extract_xvectors.sh --cmd "$train_cmd --mem 4G" --nj 40 \
             $nnet_dir data/${name}_mfcc \
             $nnet_dir/xvectors_${name}
     done
 
-    # Append data to jsons
-
     # Update json
     python local/data_io.py \
-        --in-scp-file ${nnet_dir}/xvectors_${train_set}/feats.scp \
-        --ark-class matrix \
+        --in-scp-file ${nnet_dir}/xvectors_${train_set}/xvector.scp \
+        --ark-class vector \
         --input-name input3 \
         --in-json-file ${feat_tr_dir}/data.json \
         --action add-scp-data-to-input \
@@ -329,8 +320,8 @@ if [ ${stage} -le 4 ]; then
         --force
 
     python local/data_io.py \
-        --in-scp-file ${nnet_dir}/xvectors_${train_dev}/feats.scp \
-        --ark-class matrix \
+        --in-scp-file ${nnet_dir}/xvectors_${train_dev}/xvector.scp \
+        --ark-class vector \
         --input-name input3 \
         --in-json-file ${feat_dt_dir}/data.json \
         --action add-scp-data-to-input \
@@ -340,8 +331,8 @@ if [ ${stage} -le 4 ]; then
     for rtask in ${recog_set}; do
         feat_recog_dir=${dumpdir}/${rtask}/delta${do_delta}
         python local/data_io.py \
-            --in-scp-file ${nnet_dir}/xvectors_${rtask}/feats.scp \
-            --ark-class matrix \
+            --in-scp-file ${nnet_dir}/xvectors_${rtask}/xvector.scp \
+            --ark-class vector \
             --input-name input3 \
             --in-json-file $feat_recog_dir/data.json \
             --action add-scp-data-to-input \
