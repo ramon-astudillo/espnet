@@ -73,7 +73,7 @@ recog_model=acc.best # set a model to be used for decoding: 'acc.best' or 'loss.
 # Set this to somewhere where you want to put your data, or where
 # someone else has already put it.  You'll want to change this
 # if you're not on the CLSP grid.
-datadir=data
+datadir=/export/a15/vpanayotov/data
 
 # base url for downloads.
 data_url=www.openslr.org/resources/12
@@ -98,16 +98,16 @@ if [ ! -z $gpu ]; then
 fi
 
 # Check trained tts model exists
-if [ ! -f ${tacotron_model} ];then
-    echo "Missing trained tts model in\n\n${tacotron_model}\n"    
-    exit
-fi
+#if [ ! -f ${tacotron_model} ];then
+#    echo "Missing trained tts model in\n\n${tacotron_model}\n"    
+#    exit
+#fi
 
 # Check trained asr model exists
-if [ ! -f ${prior_model} ];then
-    echo "Missing trained asr model in\n\n${prior_model}\n"    
-    exit
-fi
+#if [ ! -f ${prior_model} ];then
+#    echo "Missing trained asr model in\n\n${prior_model}\n"    
+#    exit
+#fi
 
 # Set bash to 'debug' mode, it will exit on :
 # -e 'error', -u 'undefined variable', -o ... 'error in pipeline', -x 'print commands',
@@ -136,6 +136,11 @@ if [ ${stage} -le 0 ]; then
         local/data_prep.sh ${datadir}/LibriSpeech/${part} data/$(echo ${part} | sed s/-/_/g)
     done
 fi
+
+# Uncoment this to debug using 1% of the data
+#cp -R data data.backup    
+#python local/subsample_data.py --in-data-folder data.backup/ --out-data-folder data/
+#for file in $(ls data);do bash utils/fix_data_dir.sh data/$file;done
 
 feat_tr_dir=${dumpdir}/${train_set}/delta${do_delta}; mkdir -p ${feat_tr_dir}
 feat_dt_dir=${dumpdir}/${train_dev}/delta${do_delta}; mkdir -p ${feat_dt_dir}
@@ -279,19 +284,19 @@ if [ ${stage} -le 4 ]; then
     mfccdir=mfcc
     vaddir=mfcc
     # FIXME: This should take and scp as input
-    for name in ${train_set} ${train_dev} test_clean test_other dev_clean dev_other; do
-        printf "make_fbank: \033[34m${name}\033[0m\n"    
-        utils/copy_data_dir.sh data/${name} data/${name}_mfcc
-        steps/make_mfcc.sh \
-            --write-utt2num-frames true \
-            --mfcc-config conf/mfcc.conf \
-            --nj 40 --cmd "$train_cmd" \
-            data/${name}_mfcc exp/make_mfcc $mfccdir
-        utils/fix_data_dir.sh data/${name}_mfcc
-        sid/compute_vad_decision.sh --nj 41 --cmd "$train_cmd" \
-            data/${name}_mfcc exp/make_vad ${vaddir}
-        utils/fix_data_dir.sh data/${name}_mfcc
-    done
+#    for name in ${train_set} ${train_dev} test_clean test_other dev_clean dev_other; do
+#        printf "make_fbank: \033[34m${name}\033[0m\n"    
+#        utils/copy_data_dir.sh data/${name} data/${name}_mfcc
+#        steps/make_mfcc.sh \
+#            --write-utt2num-frames true \
+#            --mfcc-config conf/mfcc.conf \
+#            --nj 40 --cmd "$train_cmd" \
+#            data/${name}_mfcc exp/make_mfcc $mfccdir
+#        utils/fix_data_dir.sh data/${name}_mfcc
+#        sid/compute_vad_decision.sh --nj 41 --cmd "$train_cmd" \
+#            data/${name}_mfcc exp/make_vad ${vaddir}
+#        utils/fix_data_dir.sh data/${name}_mfcc
+#    done
     # Check pretrained model existence
     nnet_dir=exp/xvector_nnet_1a
     if [ ! -e $nnet_dir ];then
