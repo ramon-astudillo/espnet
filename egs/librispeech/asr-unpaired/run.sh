@@ -135,12 +135,13 @@ if [ ${stage} -le 0 ]; then
         # use underscore-separated names in data directories.
         local/data_prep.sh ${datadir}/LibriSpeech/${part} data/$(echo ${part} | sed s/-/_/g)
     done
-fi
 
-# Uncoment this to debug using 1% of the data
-#cp -R data data.backup    
-#python local/subsample_data.py --in-data-folder data.backup/ --out-data-folder data/
-#for file in $(ls data);do bash utils/fix_data_dir.sh data/$file;done
+    # Uncoment this to debug using 1% of the data
+    #mv data data.backup    
+    #python local/subsample_data.py --in-data-folder data.backup/ --out-data-folder data/
+    #for file in $(ls data);do bash utils/fix_data_dir.sh data/$file;done
+
+fi
 
 feat_tr_dir=${dumpdir}/${train_set}/delta${do_delta}; mkdir -p ${feat_tr_dir}
 feat_dt_dir=${dumpdir}/${train_dev}/delta${do_delta}; mkdir -p ${feat_dt_dir}
