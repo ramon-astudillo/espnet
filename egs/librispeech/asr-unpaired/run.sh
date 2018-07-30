@@ -285,19 +285,19 @@ if [ ${stage} -le 4 ]; then
     mfccdir=mfcc
     vaddir=mfcc
     # FIXME: This should take and scp as input
-#    for name in ${train_set} ${train_dev} test_clean test_other dev_clean dev_other; do
-#        printf "make_fbank: \033[34m${name}\033[0m\n"    
-#        utils/copy_data_dir.sh data/${name} data/${name}_mfcc
-#        steps/make_mfcc.sh \
-#            --write-utt2num-frames true \
-#            --mfcc-config conf/mfcc.conf \
-#            --nj 40 --cmd "$train_cmd" \
-#            data/${name}_mfcc exp/make_mfcc $mfccdir
-#        utils/fix_data_dir.sh data/${name}_mfcc
-#        sid/compute_vad_decision.sh --nj 41 --cmd "$train_cmd" \
-#            data/${name}_mfcc exp/make_vad ${vaddir}
-#        utils/fix_data_dir.sh data/${name}_mfcc
-#    done
+    for name in ${train_set} ${train_dev} test_clean test_other dev_clean dev_other; do
+        printf "make_fbank: \033[34m${name}\033[0m\n"    
+        utils/copy_data_dir.sh data/${name} data/${name}_mfcc
+        steps/make_mfcc.sh \
+            --write-utt2num-frames true \
+            --mfcc-config conf/mfcc.conf \
+            --nj 40 --cmd "$train_cmd" \
+            data/${name}_mfcc exp/make_mfcc $mfccdir
+        utils/fix_data_dir.sh data/${name}_mfcc
+        sid/compute_vad_decision.sh --nj 41 --cmd "$train_cmd" \
+            data/${name}_mfcc exp/make_vad ${vaddir}
+        utils/fix_data_dir.sh data/${name}_mfcc
+    done
     # Check pretrained model existence
     nnet_dir=exp/xvector_nnet_1a
     if [ ! -e $nnet_dir ];then
