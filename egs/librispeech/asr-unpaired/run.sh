@@ -32,7 +32,7 @@ taco_n_shift=512     # number of shift points
 taco_win_length=1024 # number of samples in analysis window
 
 # network archtecture
-prior_model=../asr1/exp/train_460_blstmp_e8_subsample1_2_2_1_1_unit320_proj320_d1_unit300_location_aconvc10_aconvf100_mtlalpha0.5_adadelta_bs50_mli800_mlo150/results/model.conf
+prior_model=../asr1/exp/train_100_blstmp_e8_subsample1_2_2_1_1_unit320_proj320_d1_unit300_location_aconvc10_aconvf100_mtlalpha0.5_adadelta_bs50_mli800_mlo150/results/model.loss.best
 # encoder related
 etype=blstmp     # encoder architecture type
 elayers=8
@@ -98,16 +98,16 @@ if [ ! -z $gpu ]; then
 fi
 
 # Check trained tts model exists
-#if [ ! -f ${tacotron_model} ];then
-#    echo "Missing trained tts model in\n\n${tacotron_model}\n"    
-#    exit
-#fi
+if [ ! -f ${tacotron_model} ];then
+    echo "Missing trained tts model in\n\n${tacotron_model}\n"    
+    exit
+fi
 
 # Check trained asr model exists
-#if [ ! -f ${prior_model} ];then
-#    echo "Missing trained asr model in\n\n${prior_model}\n"    
-#    exit
-#fi
+if [ ! -f ${prior_model} ];then
+    echo "Missing trained asr model in\n\n${prior_model}\n"    
+    exit
+fi
 
 # Set bash to 'debug' mode, it will exit on :
 # -e 'error', -u 'undefined variable', -o ... 'error in pipeline', -x 'print commands',
@@ -169,12 +169,12 @@ if [ ${stage} -le 1 ]; then
     # dump features for training
     if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d ${feat_tr_dir}/storage ]; then
     utils/create_split_dir.pl \
-        /export/b{14,15,16,12}/${USER}/espnet-data/egs/librispeech/asr1/dump/${train_set}/delta${do_delta}/storage \
+        /export/b{14,15,16,12}/${USER}/${RANDOM}/espnet-data/egs/librispeech/asr-unpaired/dump/${train_set}/delta${do_delta}/storage \
         ${feat_tr_dir}/storage
     fi
     if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d ${feat_dt_dir}/storage ]; then
     utils/create_split_dir.pl \
-        /export/b{14,15,16,12}/${USER}/espnet-data/egs/librispeech/asr1/dump/${train_dev}/delta${do_delta}/storage \
+        /export/b{14,15,16,12}/${USER}/${RANDOM}/espnet-data/egs/librispeech/asr-unpaired/dump/${train_dev}/delta${do_delta}/storage \
         ${feat_dt_dir}/storage
     fi
     dump.sh --cmd "$train_cmd" --nj 80 --do_delta $do_delta \

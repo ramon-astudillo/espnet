@@ -268,7 +268,8 @@ def train(args):
     e2e = E2E(idim, odim, args)
     model = Loss(e2e, args.mtlalpha)
     if args.prior_model:
-        model.load_state_dict(torch.load(args.prior_model))
+        with open(args.prior_model) as fid:
+            model = torch.load(fid, map_location=lambda x, y: x)
     if args.expected_loss:
         # need to specify a loss function (loss_fn) to compute the expected
         # loss

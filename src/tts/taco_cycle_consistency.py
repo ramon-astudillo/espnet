@@ -96,7 +96,6 @@ def sanity_check_json(valid_json):
         sample['input'][1]['shape'][1]
     ), "Expected inputs 0 and 1 (asr-mel, tts-mel) to be same size"
 
-
 def convert_espnet_to_taco_batch(x, ys, batch_size, n_samples_per_input,
                                  ngpu, use_speaker_embedding=False):
     """
@@ -160,21 +159,21 @@ def convert_espnet_to_taco_batch(x, ys, batch_size, n_samples_per_input,
     return samples_batch
 
 
-def extract_tacotron_features(x, ys, n_samples_per_input, num_gpu): 
+def extract_tacotron_features(x, ys, n_samples_per_input, num_gpu):
 
-    # Expand the batch for each sample, extract tacotron 
+    # Expand the batch for each sample, extract tacotron
     expanded_x = []
     import copy
     for example_index, example_x in enumerate(x):
         for n in range(n_samples_per_input):
-    
+
             # Assumes samples are placed consecutively
             text_sample = ys[example_index*n_samples_per_input + n]
             new_example_x = copy.deepcopy(example_x)
-    
+
             # Remove ASR features
             del new_example_x[1]['input'][0]
-    
+
             # Replace output sequence
             new_example_x[1]['output'][0]['shape'][0] = len(text_sample)
             new_example_x[1]['output'][0]['text'] = None
@@ -183,7 +182,7 @@ def extract_tacotron_features(x, ys, n_samples_per_input, num_gpu):
                 map(str, list(text_sample.data.cpu().numpy()))
             )
             expanded_x.append(new_example_x)
-    
+
     # Number of gpus
     if num_gpu == 1:
         gpu_id = range(num_gpu)
@@ -191,7 +190,7 @@ def extract_tacotron_features(x, ys, n_samples_per_input, num_gpu):
         gpu_id = range(num_gpu)
     else:
         gpu_id = [-1]
-    
+
     # Construct a Tacotron batch from ESPNet batch and the samples
     # Tacotron converter
     from tts_pytorch import CustomConverter

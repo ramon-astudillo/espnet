@@ -170,7 +170,7 @@ def argument_parser(sys_argv):
         '--action',
         type=str,
         required=True,
-        choices=['add-scp-data-to-input', 'debug'],
+        choices=['add-scp-data-to-input', 'debug', 'check-json'],
         help='Action to perform with the data'
     )
     parser.add_argument(
@@ -326,3 +326,38 @@ if __name__ == '__main__':
         # in_data_json
         import ipdb;ipdb.set_trace(context=30)
         print("")
+
+    elif args.action == 'check-json':
+
+        assert args.in_json_file, "Need to provide --in-json-file"
+
+        print("Check %d features" % len(in_data_json['utts']))
+
+        working_folder = os.getcwd()
+        for utt_name, utt in in_data_json['utts'].items():
+            for feature in utt['input']:
+                file_path = feature['feat'].split(':')[0]
+                # Path checks
+                if not os.path.isfile(file_path):
+                    # Missing
+                    import ipdb;ipdb.set_trace(context=30)
+                    print("")
+                elif feature['feat'][:len(working_folder)] != working_folder:
+                    # Non local path
+                    pass
+
+                try:
+                    # Try to read as vector
+                    feat_data = kaldi_io.read_vec_flt(file_path)
+                except:
+                    try:
+                        # Try to read as matrix
+                        feat_data = kaldi_io.read_mat(file_path)
+                    except:
+                        import ipdb;ipdb.set_trace(context=30)
+                        feat_data = kaldi_io.read_mat(file_path)
+                        print("")
+
+                if data.shape != feature['shape']:
+                    import ipdb;ipdb.set_trace(context=30)
+                    print("")
