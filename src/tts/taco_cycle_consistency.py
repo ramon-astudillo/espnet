@@ -3,8 +3,10 @@ import pickle
 from e2e_tts_th import Tacotron2, Tacotron2Loss
 from tts_pytorch import CustomConverter
 
+import logging
 
-def TacotronRewardLoss(idim=None, odim=None, train_args=None,
+
+def TacotronRewardLoss(tts_model_file, idim=None, odim=None, train_args=None,
                        use_masking=False, bce_pos_weight=20.0,
                        spk_embed_dim=None):
 
@@ -53,7 +55,10 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
         dropout=train_args.dropout_rate,
         zoneout=train_args.zoneout_rate,
     )
-
+    # load trained model parameters
+    logging.info('reading model parameters from ' + tts_model_file)
+    tacotron2.load_state_dict(
+        torch.load(tts_model_file, map_location=lambda storage, loc: storage))
     # Set to eval mode
     tacotron2.eval()
     # Define loss
@@ -72,13 +77,14 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
     return loss
 
 
-def load_tacotron_loss(tts_model_file):
+def load_tacotron_loss(tts_model_conf, tts_model_file):
 
     # Read model
-    with open(tts_model_file, 'rb') as f:
+    with open(tts_model_conf, 'rb') as f:
         idim_taco, odim_taco, train_args_taco = pickle.load(f)
     # Load loss
     return TacotronRewardLoss(
+        tts_model_file,
         idim=idim_taco,
         odim=odim_taco,
         train_args=train_args_taco,

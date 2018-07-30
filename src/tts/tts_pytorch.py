@@ -300,8 +300,13 @@ def train(args):
     utts = list(valid_json.keys())
 
     # reverse input and output dimension
-    idim = int(valid_json[utts[0]]['output'][0]['shape'][1])
-    odim = int(valid_json[utts[0]]['input'][0]['shape'][1])
+    idim = int(valid_json[utts[0]]['input'][0]['shape'][1])
+    odim = int(valid_json[utts[0]]['output'][0]['shape'][1])
+    if args.asr_model:
+        e2e = E2E(idim, odim, args)
+        asr_model = Loss(e2e, 0.0)
+        asr_model.load_state_dict(torch.load(args.asr_model))
+
     logging.info('#input dims : ' + str(idim))
     logging.info('#output dims: ' + str(odim))
 

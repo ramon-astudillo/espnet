@@ -71,6 +71,10 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
 
         summary = reporter_module.DictSummary()
 
+        self.model.eval()
+        if not torch_is_old:
+            torch.set_grad_enabled(False)
+
         for batch in it:
             observation = {}
             with reporter_module.report_scope(observation):
@@ -78,13 +82,14 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
                 # x: original json with loaded features
                 #    will be converted to chainer variable later
                 x = self.converter(batch)
-                self.model.eval()
                 self.model(x)
                 delete_feat(x)
 
             summary.add(observation)
 
         self.model.train()
+        if not torch_is_old:
+            torch.set_grad_enabled(True)
 
         return summary.compute_mean()
 
@@ -265,10 +270,15 @@ def train(args):
         logging.info('Multitask learning mode')
 
     # specify model architecture
-    e2e = E2E(idim, odim, args)
+    with open(args.asr_model_conf, "rb") as f:
+        logging.info('reading a model config file from' + args.asr_model_conf)
+        idim, odim, train_args = pickle.load(f)
+
+    e2e = E2E(idim, odim, train_args)
     model = Loss(e2e, args.mtlalpha)
-    if args.prior_model:
-        model.load_state_dict(torch.load(args.prior_model))
+    if args.asr_model:
+        model.load_state_dict(torch.load(args.asr_model))
+
     if args.expected_loss:
         # need to specify a loss function (loss_fn) to compute the expected
         # loss
@@ -279,8 +289,8 @@ def train(args):
             )
             assert args.tts_model, \
                 "Need to provide --tts-model and set --expected-loss tts"
-            sanity_check_json(valid_json)
-            loss_fn= load_tacotron_loss(args.tts_model)
+            #sanity_check_json(valid_json)
+            loss_fn = load_tacotron_loss(args.tts_model_conf, args.tts_model)
 
         else:
             raise NotImplemented(
@@ -288,7 +298,7 @@ def train(args):
             )
         model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
         # Reduce paralelizable batch size
-        subbatch_size = 6
+        subbatch_size = None
     else:
         subbatch_size = None
 
@@ -327,6 +337,8 @@ def train(args):
             model.parameters(), rho=0.95, eps=args.eps)
     elif args.opt == 'adam':
         optimizer = torch.optim.Adam(model.parameters())
+    elif args.opt == 'sgd':
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
 
     # FIXME: TOO DIRTY HACK
     setattr(optimizer, "target", reporter)
