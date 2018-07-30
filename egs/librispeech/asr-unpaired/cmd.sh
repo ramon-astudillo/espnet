@@ -10,11 +10,13 @@
 # conf/queue.conf in http://kaldi-asr.org/doc/queue.html for more information,
 # or search for the string 'default_config' in utils/queue.pl or utils/slurm.pl.
 
-export train_cmd="run.pl --mem 2G"
-export cuda_cmd="run.pl --mem 2G --gpu 1"
-export decode_cmd="run.pl --mem 4G"
-
 # JHU setup
-#export train_cmd="queue.pl --mem 2G"
-#export cuda_cmd="queue.pl --mem 2G --gpu 1 --config conf/gpu.conf"
-#export decode_cmd="queue.pl --mem 4G"
+if [[ $(hostname -f) == *.clsp.jhu.edu ]];then
+    export train_cmd="queue.pl --mem 2G"
+    export cuda_cmd="queue.pl --mem 2G --gpu 1 --config conf/gpu.conf"
+    export decode_cmd="queue.pl --mem 4G"
+else
+    export train_cmd="run.pl --mem 2G"
+    export cuda_cmd="run.pl --mem 2G --gpu 1"
+    export decode_cmd="run.pl --mem 4G"
+fi
