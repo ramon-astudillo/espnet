@@ -91,10 +91,7 @@ def sanity_check_json(valid_json):
     sample = valid_json.values()[0]
     assert len(sample['input']) == 3, \
         "Expected three inputs in data asr-mel tts-mel and x-vector"
-    assert (
-        sample['input'][0]['shape'][1] ==
-        sample['input'][1]['shape'][1]
-    ), "Expected inputs 0 and 1 (asr-mel, tts-mel) to be same size"
+
 
 def convert_espnet_to_taco_batch(x, ys, batch_size, n_samples_per_input,
                                  ngpu, use_speaker_embedding=False):
