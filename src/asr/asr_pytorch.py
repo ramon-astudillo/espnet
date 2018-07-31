@@ -265,7 +265,7 @@ def train(args):
         logging.info('Multitask learning mode')
 
     # specify model architecture
-    if args.prior_model:
+    if args.asr_model:
         with open(args.asr_model_conf, "rb") as f:
             logging.info('reading a model config file from' + args.asr_model_conf)
             idim, odim, train_args = pickle.load(f)
@@ -273,8 +273,8 @@ def train(args):
     else:
         e2e = E2E(idim, odim, args)
     model = Loss(e2e, args.mtlalpha)
-    if args.prior_model:
-        with open(args.prior_model) as fid:
+    if args.asr_model:
+        with open(args.asr_model) as fid:
             model.load_state_dict(
                 torch.load(fid, map_location=lambda x, y: x)
             )
@@ -289,7 +289,7 @@ def train(args):
             assert args.tts_model_conf, \
                 "Need to provide --tts-model and set --expected-loss tts"
             sanity_check_json(valid_json)
-            loss_fn = load_tacotron_loss(args.tts_model_conf)
+            loss_fn = load_tacotron_loss(args.tts_model_conf, args.tts_model)
 
         else:
             raise NotImplemented(

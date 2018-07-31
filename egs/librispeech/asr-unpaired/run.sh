@@ -21,7 +21,9 @@ resume=        # Resume the training from snapshot
 do_delta=false # true when using CNN
 
 # Tacotron architecture
-tacotron_model_conf=../tts1/exp/train_clean_100_taco2_enc512-3x5x512-1x512_dec2x1024_pre2x256_post5x5x512_att128-15x32_cm_bn_cc_msk_pw1.0_do0.5_zo0.1_lr1e-3_ep1e-6_wd0.0_bs32_sort_by_output_mli150_mlo400_sd1/results/model.conf
+tacotron_model_conf=../tts1/exp/librispeech_from_ljspeech_enc512-3x5x512-1x512_dec2x1024_pre2x256_post5x5x512_att128-15x32_do0.5_zo0.1_lr1e-3_bs64_sd1/results/model.conf
+tacotron_model=../tts1/exp/librispeech_from_ljspeech_enc512-3x5x512-1x512_dec2x1024_pre2x256_post5x5x512_att128-15x32_do0.5_zo0.1_lr1e-3_bs64_sd1/results/model.loss.best
+
 # Tacotron config
 fs=16000    # sampling frequency
 fmax=""     # maximum frequency
@@ -32,7 +34,8 @@ taco_n_shift=512     # number of shift points
 taco_win_length=1024 # number of samples in analysis window
 
 # network archtecture
-prior_model=../asr1/exp/train_100_blstmp_e8_subsample1_2_2_1_1_unit320_proj320_d1_unit300_location_aconvc10_aconvf100_mtlalpha0.0_adadelta_bs50_mli800_mlo150/results/model.acc.best
+asr_model_conf=../asr1/exp/train_100_blstmp_e8_subsample1_2_2_1_1_unit320_proj320_d1_unit300_location_aconvc10_aconvf100_mtlalpha0.0_adadelta_bs50_mli800_mlo150/results/model.conf
+asr_model=../asr1/exp/train_100_blstmp_e8_subsample1_2_2_1_1_unit320_proj320_d1_unit300_location_aconvc10_aconvf100_mtlalpha0.0_adadelta_bs50_mli800_mlo150/results/model.acc.best
 # encoder related
 etype=blstmp     # encoder architecture type
 elayers=8
@@ -418,8 +421,9 @@ if [ ${stage} -le 6 ]; then
         --opt ${opt} \
         --epochs ${epochs} \
         --tts-model ${tacotron_model} \
-        --expected-loss-conf tts \
-        --asr-model $asr_model
+        --tts-model-conf ${tacotron_model_conf} \
+        --expected-loss tts \
+        --asr-model $asr_model \
         --asr-model-conf $asr_model_conf
 fi
 
