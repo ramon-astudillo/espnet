@@ -297,7 +297,7 @@ def train(args):
             )
         model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
         # Reduce paralelizable batch size
-        subbatch_size = None
+        subbatch_size = 5
     else:
         subbatch_size = None
 
