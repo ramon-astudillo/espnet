@@ -140,6 +140,11 @@ def argument_parser(sys_argv):
         help='Input list containing paths of ark files'
     )
     parser.add_argument(
+        '--in-ark-file',
+        type=str,
+        help='ark file (this is relevant for the Kaldi calls)'
+    )
+    parser.add_argument(
         '--ark-class',
         type=str,
         choices=['matrix', 'vector'],
@@ -213,6 +218,14 @@ if __name__ == '__main__':
         with codecs.open(args.in_scp_file, 'r', 'utf-8') as fid:
             # TODO: Sanity check formatting content
             in_scp = dict([line.strip().split() for line in fid.readlines()])
+
+    # Read ark
+    if args.in_ark_file:
+        assert args.ark_class, "--ark-class must be specified"
+        if args.ark_class == 'matrix':
+            ark_data = kaldi_io.read_mat(args.in_ark_file)
+        else:
+            ark_data = kaldi_io.read_vec_flt(args.in_ark_file)
 
     # Read json
     if args.in_json_file:
@@ -348,16 +361,16 @@ if __name__ == '__main__':
 
                 try:
                     # Try to read as vector
-                    feat_data = kaldi_io.read_vec_flt(file_path)
+                    feat_data = kaldi_io.read_vec_flt(feature['feat'])
                 except:
                     try:
                         # Try to read as matrix
-                        feat_data = kaldi_io.read_mat(file_path)
+                        feat_data = kaldi_io.read_mat(feature['feat'])
                     except:
                         import ipdb;ipdb.set_trace(context=30)
                         feat_data = kaldi_io.read_mat(file_path)
                         print("")
 
-                if data.shape != feature['shape']:
+                if list(feat_data.shape) != feature['shape']:
                     import ipdb;ipdb.set_trace(context=30)
                     print("")
