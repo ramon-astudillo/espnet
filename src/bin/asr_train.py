@@ -35,7 +35,9 @@ def main():
                         help='Random seed')
     parser.add_argument('--debugdir', type=str,
                         help='Output directory for debugging')
-    parser.add_argument('--prior-model', '-p', default='',
+    parser.add_argument('--asr-model', default='',
+                        help='Initial model')
+    parser.add_argument('--asr-model-conf', default='',
                         help='Initial model')
     parser.add_argument('--resume', '-r', default='', nargs='?',
                         help='Resume the training from snapshot')
@@ -75,6 +77,8 @@ def main():
                         choices=['chainer', 'warpctc'],
                         help='Type of CTC implementation to calculate loss.')
     parser.add_argument('--tts-model',
+                        help='TTS model for cycle-consistency loss')
+    parser.add_argument('--tts-model-conf',
                         help='TTS model for cycle-consistency loss')
     # attention
     parser.add_argument('--atype', default='dot', type=str,
@@ -121,7 +125,7 @@ def main():
                         help='Batch size is reduced if the output sequence length > ML')
     # optimization related
     parser.add_argument('--opt', default='adadelta', type=str,
-                        choices=['adadelta', 'adam'],
+                        choices=['adadelta', 'adam', 'sgd'],
                         help='Optimizer')
     parser.add_argument('--eps', default=1e-8, type=float,
                         help='Epsilon constant for optimizer')
