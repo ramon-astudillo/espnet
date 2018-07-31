@@ -289,7 +289,7 @@ def train(args):
             assert args.tts_model_conf, \
                 "Need to provide --tts-model and set --expected-loss tts"
             sanity_check_json(valid_json)
-            loss_fn = load_tacotron_loss(args.tts_model_conf, args.tts_model)
+            loss_fn = load_tacotron_loss(args.tts_model, args.tts_model_conf)
 
         else:
             raise NotImplemented(

@@ -29,6 +29,11 @@ def TacotronRewardLoss(tts_model_file, tts_model_conf, use_masking=False,
     else:
         output_activation_fn = None
 
+    # FIXME: This works only for models after Merge pull request #281 in espnet
+    # master
+    if train_args.use_speaker_embedding:
+        spk_embed_dim=train_args.embed_dim
+
     # TACOTRON CYCLE-CONSISTENT LOSS HERE
     # Define model
     tacotron2 = Tacotron2(
@@ -61,7 +66,8 @@ def TacotronRewardLoss(tts_model_file, tts_model_conf, use_masking=False,
     # load trained model parameters
     logging.info('reading model parameters from ' + tts_model_file)
     tacotron2.load_state_dict(
-        torch.load(tts_model_file, map_location=lambda storage, loc: storage))
+        torch.load(tts_model_file, map_location=lambda storage, loc: storage)
+    )
     # Set to eval mode
     tacotron2.eval()
     # Define loss
@@ -83,7 +89,7 @@ def TacotronRewardLoss(tts_model_file, tts_model_conf, use_masking=False,
 def load_tacotron_loss(tts_model_conf, tts_model_file):
 
     # Load loss
-    return TacotronRewardLoss(tts_model_file, tts_model_conf)
+    return TacotronRewardLoss(tts_model_conf, tts_model_file)
 
 
 def sanity_check_json(valid_json):
