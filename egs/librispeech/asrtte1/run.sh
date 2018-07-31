@@ -39,7 +39,7 @@ aconv_filts=100
 mtlalpha=0.0
 
 # minibatch related
-batchsize=50
+batchsize=15
 maxlen_in=800  # if input length  > maxlen_in, batchsize is automatically reduced
 maxlen_out=150 # if output length > maxlen_out, batchsize is automatically reduced
 
@@ -59,10 +59,10 @@ lm_weight=0.3
 # decoding parameter
 beam_size=20
 penalty=0.0
-maxlenratio=0.0
-minlenratio=0.0
-ctc_weight=0.3
-recog_model=acc.best # set a model to be used for decoding: 'acc.best' or 'loss.best'
+maxlenratio=0.8
+minlenratio=0.2
+ctc_weight=0.0
+recog_model=loss.best # set a model to be used for decoding: 'acc.best' or 'loss.best'
 
 n_samples=5
 sample_topk=5
@@ -103,13 +103,15 @@ set -o pipefail
 
 #train_set=train_960
 #train_set=train_100
-train_set=train_360
+train_set=train_460
 train_dev=dev
-recog_set="test_clean test_other dev_clean dev_other"
+#recog_set="test_clean test_other dev_clean dev_other"
+recog_set="test_clean dev_clean"
 
 if [ ${stage} -le -1 ]; then
     echo "stage -1: Data Download"
-    for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
+    #for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
+    for part in dev-clean test-clean train-clean-100 train-clean-360; do
         local/download_and_untar.sh ${datadir} ${data_url} ${part}
     done
 fi
@@ -118,7 +120,8 @@ if [ ${stage} -le 0 ]; then
     ### Task dependent. You have to make data the following preparation part by yourself.
     ### But you can utilize Kaldi recipes in most cases
     echo "stage 0: Data preparation"
-    for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
+    #for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
+    for part in dev-clean test-clean train-clean-100 train-clean-360; do
         # use underscore-separated names in data directories.
         local/data_prep.sh ${datadir}/LibriSpeech/${part} data/$(echo ${part} | sed s/-/_/g)
     done
@@ -133,13 +136,14 @@ if [ ${stage} -le 1 ]; then
     fbankdir=fbank
     # Generate the fbank features; by default 80-dimensional fbanks with pitch on each frame
     #for x in dev_clean test_clean dev_other test_other train_clean_100 train_clean_360 train_other_500; do
-    for x in dev_clean test_clean dev_other test_other train_clean_100 train_clean_360; do
+    for x in dev_clean test_clean train_clean_100 train_clean_360; do
         steps/make_fbank_pitch.sh --cmd "$train_cmd" --nj 32 data/${x} exp/make_fbank/${x} ${fbankdir}
     done
 
     #utils/combine_data.sh data/${train_set}_org data/train_clean_100 data/train_clean_360 data/train_other_500
     utils/combine_data.sh data/${train_set}_org data/train_clean_100 data/train_clean_360
-    utils/combine_data.sh data/${train_dev}_org data/dev_clean data/dev_other
+    #utils/combine_data.sh data/${train_dev}_org data/dev_clean data/dev_other
+    utils/combine_data.sh data/${train_dev}_org data/dev_clean
 
     # remove utt having more than 3000 frames
     # remove utt having more than 400 characters
@@ -269,6 +273,7 @@ if [ ${stage} -le 4 ]; then
         --tts-model-conf $tts_model_conf \
         --tts-model $tts_model \
         --expected-loss tts \
+        --criterion loss \
         --sample-topk $sample_topk \
         --n-samples-per-input $n_samples
 fi

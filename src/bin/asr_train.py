@@ -148,7 +148,7 @@ def main():
                         help='Type of expected loss (tts, wer, ...)')
     parser.add_argument('--n-samples-per-input', default=5, type=int,
                         help='Number of samples per input generated from model')
-    parser.add_argument('--sample-maxlenratio', default=1, type=float,
+    parser.add_argument('--sample-maxlenratio', default=0.8, type=float,
                         help='Maximum length ratio of each sample to input length')
     parser.add_argument('--sample-minlenratio', default=0.2, type=float,
                         help='minimum length ratio of each sample to input length')

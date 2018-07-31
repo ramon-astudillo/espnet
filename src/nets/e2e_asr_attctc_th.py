@@ -584,11 +584,11 @@ class E2E(torch.nn.Module):
 
         loss_att, ys, y_gen, ylens = self.dec.generate(hpad, hlens, topk=topk, maxlenratio=maxlenratio, minlenratio=minlenratio)
         # 3. CTC loss
-        ys = [to_cuda(self, Variable(torch.from_numpy(y))) for y in ys]
         loss_ctc = None
         if self.mtlalpha == 0:
             loss_ctc = None
         else:
+            ys = [to_cuda(self, Variable(torch.from_numpy(y))) for y in ys]
             loss_ctc = self.ctc(hpad, hlens, ys, reduce=False)
 
         if return_encoder_states:
@@ -2200,10 +2200,10 @@ class Decoder(torch.nn.Module):
 
         # preprate sos
         if maxlenratio == 0:
-            maxlen = max(hlen)
+            maxlen = int(max(hlen))
         else:
             # maxlen >= 1
-            maxlen = max(1, int(maxlenratio * max(hlen)))
+            maxlen = max(1, int(maxlenratio * int(max(hlen))))
         minlen = int(minlenratio * int(min(hlen)))
         odim = self.eos + 1
         # prepare the first label <sos>
