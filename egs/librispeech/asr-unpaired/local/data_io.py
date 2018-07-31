@@ -175,7 +175,7 @@ def argument_parser(sys_argv):
         '--action',
         type=str,
         required=True,
-        choices=['add-scp-data-to-input', 'debug', 'check-json'],
+        choices=['add-scp-data-to-input', 'debug', 'check-json', 'check-scp'],
         help='Action to perform with the data'
     )
     parser.add_argument(
@@ -360,17 +360,31 @@ if __name__ == '__main__':
                     pass
 
                 try:
-                    # Try to read as vector
-                    feat_data = kaldi_io.read_vec_flt(feature['feat'])
+                    # Try to read as matrix
+                    feat_data = kaldi_io.read_mat(feature['feat'])
                 except:
                     try:
-                        # Try to read as matrix
-                        feat_data = kaldi_io.read_mat(feature['feat'])
+                        # Try to read as vector
+                        feat_data = kaldi_io.read_vec_flt(feature['feat'])
                     except:
                         import ipdb;ipdb.set_trace(context=30)
                         feat_data = kaldi_io.read_mat(file_path)
                         print("")
 
                 if list(feat_data.shape) != feature['shape']:
+                    import ipdb;ipdb.set_trace(context=30)
+                    print("")
+
+
+    elif args.action == 'check-scp':
+        for utt in in_scp.values():
+            try:
+                # Try to read as matrix
+                feat_data = kaldi_io.read_mat(utt)
+            except:
+                try:
+                    # Try to read as vector
+                    feat_data = kaldi_io.read_vec_flt(utt)
+                except:
                     import ipdb;ipdb.set_trace(context=30)
                     print("")
