@@ -3,10 +3,15 @@ import pickle
 from e2e_tts_th import Tacotron2, Tacotron2Loss
 from tts_pytorch import CustomConverter
 
+import logging
 
-def TacotronRewardLoss(idim=None, odim=None, train_args=None,
-                       use_masking=False, bce_pos_weight=20.0,
-                       spk_embed_dim=None):
+
+def TacotronRewardLoss(tts_model_file, tts_model_conf, use_masking=False,
+                       bce_pos_weight=20.0, spk_embed_dim=None):
+
+    # Read model
+    with open(tts_model_conf, 'rb') as f:
+        idim, odim, train_args = pickle.load(f)
 
     # define output activation function
     if hasattr(train_args, 'output_activation'):
@@ -23,6 +28,11 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
             )
     else:
         output_activation_fn = None
+
+    # FIXME: This works only for models after Merge pull request #281 in espnet
+    # master
+    if train_args.use_speaker_embedding:
+        spk_embed_dim=train_args.embed_dim
 
     # TACOTRON CYCLE-CONSISTENT LOSS HERE
     # Define model
@@ -53,7 +63,11 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
         dropout=train_args.dropout_rate,
         zoneout=train_args.zoneout_rate,
     )
-
+    # load trained model parameters
+    logging.info('reading model parameters from ' + tts_model_file)
+    tacotron2.load_state_dict(
+        torch.load(tts_model_file, map_location=lambda storage, loc: storage)
+    )
     # Set to eval mode
     tacotron2.eval()
     # Define loss
@@ -72,17 +86,10 @@ def TacotronRewardLoss(idim=None, odim=None, train_args=None,
     return loss
 
 
-def load_tacotron_loss(tts_model_file):
+def load_tacotron_loss(tts_model_conf, tts_model_file):
 
-    # Read model
-    with open(tts_model_file, 'rb') as f:
-        idim_taco, odim_taco, train_args_taco = pickle.load(f)
     # Load loss
-    return TacotronRewardLoss(
-        idim=idim_taco,
-        odim=odim_taco,
-        train_args=train_args_taco,
-    )
+    return TacotronRewardLoss(tts_model_conf, tts_model_file)
 
 
 def sanity_check_json(valid_json):
@@ -91,10 +98,7 @@ def sanity_check_json(valid_json):
     sample = valid_json.values()[0]
     assert len(sample['input']) == 3, \
         "Expected three inputs in data asr-mel tts-mel and x-vector"
-    assert (
-        sample['input'][0]['shape'][1] ==
-        sample['input'][1]['shape'][1]
-    ), "Expected inputs 0 and 1 (asr-mel, tts-mel) to be same size"
+
 
 def convert_espnet_to_taco_batch(x, ys, batch_size, n_samples_per_input,
                                  ngpu, use_speaker_embedding=False):
