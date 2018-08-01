@@ -55,7 +55,11 @@ def converter_kaldi(batch, device=None):
     # batch only has one minibatch utterance, which is specified by batch[0]
     batch = batch[0]
     for data in batch:
-        feat = kaldi_io_py.read_mat(data[1]['input'][0]['feat'])
+        try:
+            feat = kaldi_io_py.read_mat(data[1]['input'][0]['feat'])
+        except AssertionError as exception:
+            print(data[1]['input'][0])
+            raise exception
         data[1]['feat'] = feat
 
     return batch
