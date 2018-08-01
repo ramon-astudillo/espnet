@@ -71,6 +71,10 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
 
         summary = reporter_module.DictSummary()
 
+        self.model.eval()
+        if not torch_is_old:
+            torch.set_grad_enabled(False)
+
         for batch in it:
             observation = {}
             with reporter_module.report_scope(observation):
@@ -85,6 +89,8 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
             summary.add(observation)
 
         self.model.train()
+        if not torch_is_old:
+            torch.set_grad_enabled(True)
 
         return summary.compute_mean()
 
@@ -119,6 +125,12 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
             logging.warning('batch size is less than number of gpus. Ignored')
             return
         x = self.converter(batch)
+        # Tacotron conversion
+        for example in x:
+            example[1]['input'][2]['feat'] = \
+                kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
+            example[1]['input'][1]['feat'] = \
+                kaldi_io_py.read_mat(example[1]['input'][1]['feat'])
 
         if self.subbatch_size:
 
@@ -267,8 +279,16 @@ def train(args):
     # specify model architecture
     if args.asr_model:
         with open(args.asr_model_conf, "rb") as f:
-            logging.info('reading a model config file from' + args.asr_model_conf)
+            logging.info(
+                'reading a model config file from' + args.asr_model_conf
+            )
             idim, odim, train_args = pickle.load(f)
+        # Ensure external alpha and model one match
+        assert args.mtlalpha == train_args.mtlalpha, \
+            "model has mtlaplha = %2.2f but config has %2.2f" % (
+                train_args.mtlalpha,
+                args.mtlalpha
+            )
         e2e = E2E(idim, odim, train_args)
     else:
         e2e = E2E(idim, odim, args)
