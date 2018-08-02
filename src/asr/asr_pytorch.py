@@ -82,6 +82,11 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
                 # x: original json with loaded features
                 #    will be converted to chainer variable later
                 x = self.converter(batch)
+                for example in x:
+                    example[1]['input'][2]['feat'] = \
+                        kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
+                    example[1]['input'][1]['feat'] = \
+                        kaldi_io_py.read_mat(example[1]['input'][1]['feat'])
                 self.model.eval()
                 self.model(x)
                 delete_feat(x)
