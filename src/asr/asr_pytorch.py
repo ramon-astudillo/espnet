@@ -132,10 +132,12 @@ class PytorchSeqUpdaterKaldi(training.StandardUpdater):
         x = self.converter(batch)
         # Tacotron conversion
         for example in x:
-            example[1]['input'][2]['feat'] = \
-                kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
-            example[1]['input'][1]['feat'] = \
-                kaldi_io_py.read_mat(example[1]['input'][1]['feat'])
+            if isinstance(example[1]['input'][2]['feat'], basestring):
+                example[1]['input'][2]['feat'] = \
+                    kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
+            if isinstance(example[1]['input'][1]['feat'], basestring):
+                example[1]['input'][1]['feat'] = \
+                    kaldi_io_py.read_mat(example[1]['input'][1]['feat'])
 
         if self.subbatch_size:
 
@@ -322,7 +324,7 @@ def train(args):
             )
         model = ExpectedLoss(model.predictor, args, loss_fn=loss_fn)
         # Reduce paralelizable batch size
-        subbatch_size = 5
+        subbatch_size = None
     else:
         subbatch_size = None
 
