@@ -83,10 +83,12 @@ class PytorchSeqEvaluaterKaldi(extensions.Evaluator):
                 #    will be converted to chainer variable later
                 x = self.converter(batch)
                 for example in x:
-                    example[1]['input'][2]['feat'] = \
-                        kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
-                    example[1]['input'][1]['feat'] = \
-                        kaldi_io_py.read_mat(example[1]['input'][1]['feat'])
+                    if isinstance(example[1]['input'][2]['feat'], basestring):
+                        example[1]['input'][2]['feat'] = \
+                            kaldi_io_py.read_vec_flt(example[1]['input'][2]['feat'])
+                    if isinstance(example[1]['input'][1]['feat'], basestring):
+                        example[1]['input'][1]['feat'] = \
+                            kaldi_io_py.read_mat(example[1]['input'][1]['feat'])
                 self.model.eval()
                 self.model(x)
                 delete_feat(x)
