@@ -453,8 +453,9 @@ def train(args):
     # Save best models
     trainer.extend(extensions.snapshot_object(asr2tts_model, 'model.loss.best', savefun=torch_save),
                    trigger=training.triggers.MinValueTrigger('validation/main/loss'))
+
     if mtl_mode is not 'ctc':
-        trainer.extend(extensions.snapshot_object(asr2tts_model, 'model.acc.best', savefun=torch_save),
+        # trainer.extend(extensions.snapshot_object(asr2tts_model, 'model.acc.best', savefun=torch_save),
         trainer.extend(extensions.snapshot_object(asr_model, 'model.acc.asr.best', savefun=torch_save),
                        trigger=training.triggers.MaxValueTrigger('validation/main/acc'))
 

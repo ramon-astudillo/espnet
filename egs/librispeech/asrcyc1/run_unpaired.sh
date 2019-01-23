@@ -261,7 +261,7 @@ fi
 lmexpdir=exp/train_rnnlm_${backend}_${lmtag}
 mkdir -p ${lmexpdir}
 
-if [ ${stage} -le 4 ]; then
+if [ ${stage} -le 3 ]; then
     echo "stage 3: LM Preparation"
     
     if [ $use_wordlm = true ]; then
