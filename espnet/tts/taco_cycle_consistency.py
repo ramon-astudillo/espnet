@@ -1,6 +1,6 @@
-from e2e_tts_cyc_th import Tacotron2
-from e2e_tts_cyc_th import Tacotron2Loss
-from tts_cyc_pytorch import CustomConverter
+from espnet.nets.e2e_tts_cyc_th import Tacotron2
+from espnet.nets.e2e_tts_cyc_th import Tacotron2Loss
+from espnet.tts.tts_cyc_pytorch import CustomConverter
 
 import logging
 import pickle

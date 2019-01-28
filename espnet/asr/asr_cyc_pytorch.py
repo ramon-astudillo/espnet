@@ -183,7 +183,7 @@ class CustomUpdater(training.StandardUpdater):
 
             optimizer.zero_grad()  # Clear the parameter gradients
             if self.ngpu > 1:
-                #loss.backward(loss.new_ones(self.ngpu))  # Backprop
+                # loss.backward(loss.new_ones(self.ngpu))  # Backprop
                 loss.sum().backward()
             else:
                 loss.backward()
@@ -304,8 +304,9 @@ def train(args):
         # need to specify a loss function (loss_fn) to compute the expected
         # loss
         if args.expected_loss == 'tts':
-            from taco_cycle_consistency import load_tacotron_loss
-            assert args.tts_model, "Need to provide --tts-model and set --expected-loss tts"
+            from espnet.tts.taco_cycle_consistency import load_tacotron_loss
+            assert args.tts_model, \
+                "Need to provide --tts-model and set --expected-loss tts"
             loss_fn = load_tacotron_loss(args.tts_model_conf, args.tts_model)
         elif args.expected_loss == 'none':
             loss_fn = None
