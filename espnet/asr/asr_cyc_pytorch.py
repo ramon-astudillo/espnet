@@ -25,6 +25,7 @@ import torch
 from espnet.asr.asr_utils import adadelta_eps_decay
 from espnet.asr.asr_utils import add_results_to_json
 from espnet.asr.asr_utils import CompareValueTrigger
+from espnet.asr.asr_utils import freeze_parameters
 from espnet.asr.asr_utils import get_model_conf
 from espnet.asr.asr_utils import load_inputs_and_targets
 from espnet.asr.asr_utils import make_batchset
@@ -183,7 +184,6 @@ class CustomUpdater(training.StandardUpdater):
 
             optimizer.zero_grad()  # Clear the parameter gradients
             if self.ngpu > 1:
-                # loss.backward(loss.new_ones(self.ngpu))  # Backprop
                 loss.sum().backward()
             else:
                 loss.backward()
@@ -278,10 +278,15 @@ def train(args):
 
     # specify model architecture
     if args.asr_model_conf:
-        with open(args.asr_model_conf, "rb") as f:
-            logging.info('reading a model config file from' + args.asr_model_conf)
-            import pickle
-            idim, odim, train_args = pickle.load(f)
+        if 'conf' in args.asr_model_conf:
+            with open(args.asr_model_conf, "rb") as f:
+                logging.info('reading a model config file from' + args.asr_model_conf)
+                import pickle
+                idim, odim, train_args = pickle.load(f)
+        elif 'json' in args.asr_model_conf:
+            from espnet.asr.asr_utils import get_model_conf
+            idim, odim, train_args = get_model_conf(args.asr_model,
+                                                    conf_path=args.asr_model_conf)
         e2e = E2E(idim, odim, train_args)
     else:
         e2e = E2E(idim, odim, args)
@@ -298,6 +303,24 @@ def train(args):
         e2e.rnnlm = rnnlm
     else:
         rnnlm = None
+
+    if args.freeze == "encattdec":
+        asr_model, size = freeze_parameters(asr_model, 16)
+        logging.info("no of parameters frozen are: " + str(size))
+    elif args.freeze == "dec":
+        asr_model, size = freeze_parameters(asr_model, 0, "att")
+        logging.info("no of parameters frozen are: " + str(size))
+    elif args.freeze == "attdec":
+        asr_model, size = freeze_parameters(asr_model, 0)
+        logging.info("no of parameters frozen are: " + str(size))
+    elif args.freeze == "encatt":
+        asr_model, size = freeze_parameters(asr_model, 16, "dec")
+        logging.info("no of parameters frozen are: " + str(size))
+    elif args.freeze == "enc":
+        asr_model, size = freeze_parameters(asr_model, 16, "att", "dec")
+        logging.info("no of parameters frozen are: " + str(size))
+    else:
+        logging.warn("Only Disney is frozen")
 
     # setup loss functions
     if args.expected_loss:
@@ -318,8 +341,12 @@ def train(args):
                                      reporter=asr_model.reporter,
                                      rnnlm=rnnlm, lm_loss_weight=args.lm_loss_weight)
         if loss_fn is not None:
-            tts_model = Tacotron2TTELoss(loss_fn.model, asr_model.predictor,
-                                         reporter=asr_model.reporter)
+            if args.generator == 'tte':
+                tts_model = Tacotron2TTELoss(loss_fn.model, asr_model.predictor,
+                                             reporter=asr_model.reporter)
+            elif args.generator == 'tts':
+                tts_model = loss_fn.model
+
             tts2asr_model = Tacotron2ASRLoss(loss_fn.model, asr_model.predictor,
                                              reporter=asr_model.reporter,
                                              weight=args.teacher_weight)
@@ -456,7 +483,8 @@ def train(args):
                    trigger=training.triggers.MinValueTrigger('validation/main/loss'))
 
     if mtl_mode is not 'ctc':
-        # trainer.extend(extensions.snapshot_object(asr2tts_model, 'model.acc.best', savefun=torch_save),
+        trainer.extend(extensions.snapshot_object(asr2tts_model, 'model.acc.best', savefun=torch_save),
+                       trigger=training.triggers.MaxValueTrigger('validation/main/acc'))
         trainer.extend(extensions.snapshot_object(asr_model, 'model.acc.asr.best', savefun=torch_save),
                        trigger=training.triggers.MaxValueTrigger('validation/main/acc'))
 
@@ -488,8 +516,7 @@ def train(args):
     trainer.extend(extensions.LogReport(trigger=(REPORT_INTERVAL, 'iteration')))
     report_keys = ['epoch', 'iteration', 'main/loss', 'main/loss_att', 'main/loss_cyc',
                    'main/loss_l1', 'main/loss_mse', 'main/loss_bce',
-                   'main/acc', 'validation/main/loss', 'validation/main/acc',
-                   'elapsed_time']
+                   'main/acc', 'validation/main/loss', 'validation/main/acc', 'elapsed_time']
     if args.opt == 'adadelta':
         trainer.extend(extensions.observe_value(
             'eps', lambda trainer: trainer.updater.get_optimizer('main').param_groups[0]["eps"]),
